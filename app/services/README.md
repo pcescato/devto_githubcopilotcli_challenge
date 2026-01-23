@@ -90,10 +90,29 @@ asyncio.run(main())
 ```bash
 # Show full dashboard
 python -m app.services.analytics_service
+python -m app.services.analytics_service --overview
+
+# Refresh article stats cache (quality scores + follower attribution)
+python -m app.services.analytics_service --refresh
 
 # Show specific article breakdown
 python -m app.services.analytics_service --article=123456
 ```
+
+**Key Methods:**
+
+- `refresh_all_stats()` - Calculate and cache quality scores and follower attribution
+  - Quality Score: `(completion × 0.7) + (min(engagement, 20) × 1.5)`
+  - 7-day and 30-day follower attribution (Share of Voice)
+  - UPSERT to `article_stats_cache` table
+  
+- `get_quality_scores()` - Article quality metrics with completion and engagement rates
+- `get_reaction_breakdown()` - Lifetime vs 90-day reaction analysis (identifies gaps)
+- `weighted_follower_attribution()` - Proportional follower gain attribution by article
+- `article_follower_correlation()` - 7-day window attribution with proximity search
+- `engagement_evolution()` - Velocity analysis (views/hour) around milestone events
+- `get_overview()` - Global trends with delta vs previous period
+- `best_publishing_times()` - Optimal day/hour analysis for publishing
 
 ### NLPService
 
