@@ -165,7 +165,7 @@ def init_schema():
     PostgreSQL pattern:
         metadata.create_all(engine)  # Idempotent - uses IF NOT EXISTS
     """
-    from .tables import metadata
+    from .tables import metadata, daily_analytics
     
     engine = get_engine()
     
@@ -174,8 +174,39 @@ def init_schema():
         conn.execute(text("CREATE SCHEMA IF NOT EXISTS devto_analytics"))
         conn.commit()
     
-    # Create all tables
-    metadata.create_all(engine)
+    # Create all tables EXCEPT daily_analytics (needs partitioning)
+    tables_to_create = [t for t in metadata.sorted_tables if t.name != 'daily_analytics']
+    metadata_subset = metadata.__class__(schema='devto_analytics')
+    for table in tables_to_create:
+        table.to_metadata(metadata_subset)
+    metadata_subset.create_all(engine)
+    
+    # Create daily_analytics as partitioned table (manual DDL)
+    with engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS devto_analytics.daily_analytics (
+                id SERIAL NOT NULL,
+                article_id INTEGER NOT NULL,
+                date TIMESTAMP WITH TIME ZONE NOT NULL,
+                collected_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                page_views INTEGER DEFAULT 0,
+                average_read_time_seconds INTEGER DEFAULT 0,
+                total_read_time_seconds INTEGER DEFAULT 0,
+                readers INTEGER DEFAULT 0,
+                reactions INTEGER DEFAULT 0,
+                comments INTEGER DEFAULT 0,
+                follows INTEGER DEFAULT 0,
+                CONSTRAINT pk_daily_analytics PRIMARY KEY (id, date),
+                CONSTRAINT uq_daily_analytics_article_date UNIQUE (article_id, date)
+            ) PARTITION BY RANGE (date);
+        """))
+        
+        # Create indexes
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_analytics_article_id ON devto_analytics.daily_analytics (article_id);"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_analytics_date ON devto_analytics.daily_analytics (date);"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_analytics_article_date ON devto_analytics.daily_analytics (article_id, date);"))
+        
+        conn.commit()
     
     print("✅ Database schema initialized")
 
@@ -197,9 +228,10 @@ def insert_or_ignore(conn, table, values_dict: dict):
     Returns:
         Number of rows inserted (0 if conflict)
     """
-    from sqlalchemy import insert
+    from sqlalchemy.dialects.postgresql import insert
     
-    stmt = insert(table).values(**values_dict).on_conflict_do_nothing()
+    stmt = insert(table).values(**values_dict)
+    stmt = stmt.on_conflict_do_nothing()
     result = conn.execute(stmt)
     return result.rowcount
 
@@ -226,7 +258,7 @@ def insert_or_update(conn, table, values_dict: dict, conflict_cols: list):
     Returns:
         Number of rows affected
     """
-    from sqlalchemy import insert
+    from sqlalchemy.dialects.postgresql import insert
     
     stmt = insert(table).values(**values_dict)
     

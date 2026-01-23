@@ -1,0 +1,180 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 18 - Main database
+  postgres:
+    image: pgvector/pgvector:pg18-trixie
+    container_name: devto_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-devto}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devto_secure_password}
+      POSTGRES_DB: ${POSTGRES_DB:-devto_analytics}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
+      # Performance tuning
+      POSTGRES_SHARED_BUFFERS: ${POSTGRES_SHARED_BUFFERS:-256MB}
+      POSTGRES_EFFECTIVE_CACHE_SIZE: ${POSTGRES_EFFECTIVE_CACHE_SIZE:-1GB}
+      POSTGRES_MAINTENANCE_WORK_MEM: ${POSTGRES_MAINTENANCE_WORK_MEM:-128MB}
+      POSTGRES_WORK_MEM: ${POSTGRES_WORK_MEM:-16MB}
+      POSTGRES_MAX_CONNECTIONS: ${POSTGRES_MAX_CONNECTIONS:-100}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql  # On enlève le "/data" ici
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./docker/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    # command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-devto} -d ${POSTGRES_DB:-devto_analytics}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - devto_network
+
+  # Valkey (Redis alternative) - Caching and session storage
+  valkey:
+    image: valkey/valkey:8.0-alpine
+    container_name: devto_valkey
+    restart: unless-stopped
+    environment:
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:-valkey_secure_password}
+    ports:
+      - "${VALKEY_PORT:-6379}:6379"
+    volumes:
+      - valkey_data:/data
+      - ./docker/valkey/valkey.conf:/usr/local/etc/valkey/valkey.conf:ro
+    command: valkey-server /usr/local/etc/valkey/valkey.conf --requirepass ${VALKEY_PASSWORD:-valkey_secure_password}
+    healthcheck:
+      test: ["CMD", "valkey-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - devto_network
+
+  # DbGate - Web-based database client
+  dbgate:
+    image: dbgate/dbgate:latest
+    container_name: devto_dbgate
+    restart: unless-stopped
+    environment:
+      CONNECTIONS: postgres
+      LABEL_postgres: "DEV.to Analytics"
+      SERVER_postgres: postgres
+      USER_postgres: ${POSTGRES_USER:-devto}
+      PASSWORD_postgres: ${POSTGRES_PASSWORD:-devto_secure_password}
+      PORT_postgres: 5432
+      DATABASE_postgres: ${POSTGRES_DB:-devto_analytics}
+      ENGINE_postgres: postgres@dbgate-plugin-postgres
+    ports:
+      - "${DBGATE_PORT:-3000}:3000"
+    volumes:
+      - dbgate_data:/root/.dbgate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - devto_network
+
+  # Apache Superset - Business intelligence platform
+  superset:
+    image: apache/superset:latest
+    container_name: devto_superset
+    restart: unless-stopped
+    environment:
+      # Database connection
+      SUPERSET_DATABASE_URI: postgresql+psycopg2://${POSTGRES_USER:-devto}:${POSTGRES_PASSWORD:-devto_secure_password}@postgres:5432/${POSTGRES_DB:-devto_analytics}
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-CHANGE_THIS_TO_A_LONG_RANDOM_SECRET_KEY}
+      
+      # Superset configuration
+      SUPERSET_LOAD_EXAMPLES: "no"
+      SUPERSET_ENV: production
+      
+      # Admin credentials
+      SUPERSET_ADMIN_USERNAME: ${SUPERSET_ADMIN_USERNAME:-admin}
+      SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD:-admin}
+      SUPERSET_ADMIN_EMAIL: ${SUPERSET_ADMIN_EMAIL:-admin@devto-analytics.local}
+      SUPERSET_ADMIN_FIRSTNAME: ${SUPERSET_ADMIN_FIRSTNAME:-Admin}
+      SUPERSET_ADMIN_LASTNAME: ${SUPERSET_ADMIN_LASTNAME:-User}
+      
+      # Cache with Valkey
+      REDIS_HOST: valkey
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${VALKEY_PASSWORD:-valkey_secure_password}
+      
+      # Performance
+      SUPERSET_WEBSERVER_TIMEOUT: 300
+    ports:
+      - "${SUPERSET_PORT:-8088}:8088"
+    volumes:
+      - superset_data:/app/superset_home
+      - ./docker/superset/init-superset.sh:/app/docker/init-superset.sh:ro
+      - ./docker/superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+    command: >
+      sh -c "
+        /app/docker/init-superset.sh &&
+        gunicorn 
+          --bind 0.0.0.0:8088 
+          --workers 4 
+          --timeout 300 
+          --limit-request-line 0 
+          --limit-request-field_size 0 
+          'superset.app:create_app()'
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - devto_network
+
+  # FastAPI Application (planned - uncomment when ready)
+  # fastapi:
+  #   build:
+  #     context: ./app
+  #     dockerfile: Dockerfile
+  #   container_name: devto_fastapi
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_HOST: postgres
+  #     POSTGRES_PORT: 5432
+  #     POSTGRES_USER: ${POSTGRES_USER:-devto}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devto_secure_password}
+  #     POSTGRES_DB: ${POSTGRES_DB:-devto_analytics}
+  #     VALKEY_HOST: valkey
+  #     VALKEY_PORT: 6379
+  #     VALKEY_PASSWORD: ${VALKEY_PASSWORD:-valkey_secure_password}
+  #     DEVTO_API_KEY: ${DEVTO_API_KEY}
+  #   ports:
+  #     - "${FASTAPI_PORT:-8000}:8000"
+  #   volumes:
+  #     - ./app:/app
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     valkey:
+  #       condition: service_healthy
+  #   networks:
+  #     - devto_network
+
+networks:
+  devto_network:
+    name: devto_network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres_data:
+    name: devto_postgres_data
+  valkey_data:
+    name: devto_valkey_data
+  dbgate_data:
+    name: devto_dbgate_data
+  superset_data:
+    name: devto_superset_data
