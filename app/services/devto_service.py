@@ -514,15 +514,21 @@ class DevToService:
         collected_at: datetime
     ) -> int:
         """
-        Sync traffic referrers with upsert pattern
+        Sync traffic referrers as time-series data
         
-        Uses: INSERT ... ON CONFLICT DO UPDATE
+        Uses: INSERT ... ON CONFLICT DO NOTHING
+        Note: Constraint is on (article_id, domain, collected_at) for time-series tracking
+        Each collection creates a new snapshot of referrer counts
         """
         count = 0
         domains = referrer_data.get('domains', [])
         
         async with self.engine.begin() as conn:
             for ref in domains:
+                # Skip entries with missing domain
+                if not ref.get('domain'):
+                    continue
+                
                 # Build insert statement
                 stmt = pg_insert(referrers).values(
                     article_id=article_id,
@@ -531,13 +537,9 @@ class DevToService:
                     collected_at=collected_at,
                 )
                 
-                # ON CONFLICT DO UPDATE
-                stmt = stmt.on_conflict_do_update(
-                    constraint='uq_referrers_article_domain',
-                    set_={
-                        'count': stmt.excluded.count,
-                        'collected_at': stmt.excluded.collected_at,
-                    }
+                # ON CONFLICT DO NOTHING (time-series: don't update existing snapshots)
+                stmt = stmt.on_conflict_do_nothing(
+                    constraint='uq_referrers_article_domain_time'
                 )
                 
                 await conn.execute(stmt)
