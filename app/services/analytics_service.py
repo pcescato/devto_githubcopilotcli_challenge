@@ -513,6 +513,199 @@ class AnalyticsService:
         }
     
     # ========================================================================
+    # CACHE REFRESH
+    # ========================================================================
+    
+    async def refresh_all_stats(self) -> Dict[str, Any]:
+        """
+        Calculate and cache quality scores and follower attribution for all articles
+        
+        This method:
+        1. Calculates Quality Score using 90-day data from daily_analytics
+        2. Computes 7-day and 30-day follower attribution (Share of Voice)
+        3. Saves results to article_stats_cache with UPSERT
+        
+        Quality Score Formula (STRICT):
+        - completion_rate = (avg_read_seconds / length_seconds) * 100
+        - engagement_rate = ((reactions + comments) / views) * 100
+        - quality_score = (completion * 0.7) + (min(engagement, 20) * 1.5)
+        
+        Returns:
+            Dict with refresh statistics
+        """
+        from app.db.tables import (
+            article_metrics as am, 
+            daily_analytics as da,
+            article_stats_cache
+        )
+        from sqlalchemy.dialects.postgresql import insert
+        
+        print("\n" + "="*100)
+        print("🔄 REFRESHING ARTICLE STATS CACHE")
+        print("="*100)
+        
+        async with self.engine.connect() as conn:
+            # Step 1: Get all articles with their latest metrics and 90-day aggregates
+            print("\n📊 Step 1/3: Calculating quality scores...")
+            
+            # Subquery for 90-day aggregates per article
+            da_agg = (
+                select(
+                    da.c.article_id,
+                    func.avg(da.c.average_read_time_seconds).label('avg_read_seconds'),
+                    func.max(da.c.page_views).label('views_90d'),
+                    func.sum(da.c.reactions_total).label('reactions_90d'),
+                    func.sum(da.c.comments_total).label('comments_90d'),
+                )
+                .group_by(da.c.article_id)
+            ).subquery('da_agg')
+            
+            # Get latest metrics per article
+            latest_metrics_subq = (
+                select(
+                    am.c.article_id,
+                    func.max(am.c.collected_at).label('latest_collected_at')
+                )
+                .group_by(am.c.article_id)
+            ).subquery('latest_metrics')
+            
+            # Main query: Join article_metrics with latest and 90d aggregates
+            articles_query = (
+                select(
+                    am.c.article_id,
+                    am.c.title,
+                    am.c.reading_time_minutes,
+                    am.c.views,
+                    am.c.reactions,
+                    am.c.comments,
+                    am.c.collected_at,
+                    da_agg.c.avg_read_seconds,
+                    da_agg.c.views_90d,
+                    da_agg.c.reactions_90d,
+                    da_agg.c.comments_90d,
+                )
+                .select_from(
+                    am
+                    .join(
+                        latest_metrics_subq,
+                        and_(
+                            am.c.article_id == latest_metrics_subq.c.article_id,
+                            am.c.collected_at == latest_metrics_subq.c.latest_collected_at
+                        )
+                    )
+                    .outerjoin(da_agg, am.c.article_id == da_agg.c.article_id)
+                )
+            )
+            
+            result = await conn.execute(articles_query)
+            articles = result.mappings().all()
+            
+            print(f"   Found {len(articles)} articles to process")
+            
+            # Step 2: Calculate follower attribution (7d and 30d)
+            print("\n👥 Step 2/3: Calculating follower attribution...")
+            
+            attribution_7d = await self.weighted_follower_attribution(hours=168)  # 7 days
+            attribution_30d = await self.weighted_follower_attribution(hours=720)  # 30 days
+            
+            # Create lookup dicts by title (attribution returns title, not article_id)
+            attr_7d_map = {
+                item['title']: item['attributed_followers']
+                for item in attribution_7d.get('attribution', [])
+            }
+            attr_30d_map = {
+                item['title']: item['attributed_followers']
+                for item in attribution_30d.get('attribution', [])
+            }
+            
+            print(f"   7-day attribution: {len(attr_7d_map)} articles")
+            print(f"   30-day attribution: {len(attr_30d_map)} articles")
+            
+            # Step 3: Calculate quality scores and prepare UPSERT data
+            print("\n💾 Step 3/3: Upserting to article_stats_cache...")
+            
+            upsert_data = []
+            for article in articles:
+                # Quality score calculation (same as get_quality_scores)
+                length_sec = (article['reading_time_minutes'] or 5) * 60
+                avg_read = float(article['avg_read_seconds'] or 0)
+                completion = min(100, (avg_read / length_sec) * 100) if length_sec > 0 else 0
+                
+                # Engagement on 90-day window
+                views = int(article['views_90d'] or 1)
+                reactions = int(article['reactions_90d'] or 0)
+                comments = int(article['comments_90d'] or 0)
+                engagement = ((reactions + comments) / views) * 100
+                
+                # Quality score: 70% completion, 30% engagement (capped at 20%)
+                quality_score = (completion * 0.7) + (min(engagement, 20) * 1.5)
+                
+                # Follower attribution lookup
+                title = article['title']
+                attributed_7d = attr_7d_map.get(title)
+                attributed_30d = attr_30d_map.get(title)
+                
+                upsert_data.append({
+                    'article_id': article['article_id'],
+                    'latest_views': article['views'],
+                    'latest_reactions': article['reactions'],
+                    'latest_comments': article['comments'],
+                    'latest_collected_at': article['collected_at'],
+                    'quality_score': round(quality_score, 2),
+                    'completion_rate': round(completion, 2),
+                    'engagement_rate': round(engagement, 2),
+                    'attributed_followers_7d': round(attributed_7d, 2) if attributed_7d else None,
+                    'attributed_followers_30d': round(attributed_30d, 2) if attributed_30d else None,
+                    'updated_at': datetime.now(timezone.utc),
+                })
+            
+            # Perform UPSERT (ON CONFLICT DO UPDATE)
+            if upsert_data:
+                stmt = insert(article_stats_cache).values(upsert_data)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=['article_id'],
+                    set_={
+                        'latest_views': stmt.excluded.latest_views,
+                        'latest_reactions': stmt.excluded.latest_reactions,
+                        'latest_comments': stmt.excluded.latest_comments,
+                        'latest_collected_at': stmt.excluded.latest_collected_at,
+                        'quality_score': stmt.excluded.quality_score,
+                        'completion_rate': stmt.excluded.completion_rate,
+                        'engagement_rate': stmt.excluded.engagement_rate,
+                        'attributed_followers_7d': stmt.excluded.attributed_followers_7d,
+                        'attributed_followers_30d': stmt.excluded.attributed_followers_30d,
+                        'updated_at': stmt.excluded.updated_at,
+                    }
+                )
+                await conn.execute(stmt)
+                await conn.commit()
+                
+                print(f"   ✅ Successfully updated {len(upsert_data)} articles in cache")
+            else:
+                print("   ⚠️  No data to update")
+            
+            # Summary statistics
+            avg_quality = sum(d['quality_score'] for d in upsert_data) / len(upsert_data) if upsert_data else 0
+            articles_with_7d = sum(1 for d in upsert_data if d['attributed_followers_7d'] is not None)
+            articles_with_30d = sum(1 for d in upsert_data if d['attributed_followers_30d'] is not None)
+            
+            print("\n" + "="*100)
+            print("✨ REFRESH COMPLETE")
+            print("="*100)
+            print(f"Total articles: {len(upsert_data)}")
+            print(f"Average quality score: {avg_quality:.1f}")
+            print(f"Articles with 7d attribution: {articles_with_7d}")
+            print(f"Articles with 30d attribution: {articles_with_30d}")
+            print("="*100 + "\n")
+            
+            return {
+                'total_articles': len(upsert_data),
+                'average_quality_score': round(avg_quality, 2),
+                'articles_with_7d_attribution': articles_with_7d,
+                'articles_with_30d_attribution': articles_with_30d,
+            }
+    
+    # ========================================================================
     # DASHBOARD VIEWS
     # ========================================================================
     
@@ -1187,21 +1380,30 @@ async def main():
     
     service = await create_analytics_service()
     
-    if len(sys.argv) > 1 and sys.argv[1].startswith('--article='):
-        # Show daily breakdown for specific article
-        article_id = int(sys.argv[1].split('=')[1])
-        breakdown = await service.get_article_daily_breakdown(article_id)
-        
-        if breakdown:
-            print(f"\n📊 DAILY BREAKDOWN: {breakdown['title']}")
-            print(f"{'Date':<12} {'Views':>7} {'Read(s)':>9} {'Reactions':>10} {'Comments':>10}")
-            for day in breakdown['daily_data']:
-                print(f"{day['date']:<12} {day['page_views']:>7} "
-                      f"{day['avg_read_seconds']:>9} {day['reactions']:>10} {day['comments']:>10}")
+    if len(sys.argv) > 1:
+        if sys.argv[1] == '--refresh':
+            # Refresh article stats cache
+            await service.refresh_all_stats()
+        elif sys.argv[1].startswith('--article='):
+            # Show daily breakdown for specific article
+            article_id = int(sys.argv[1].split('=')[1])
+            breakdown = await service.get_article_daily_breakdown(article_id)
+            
+            if breakdown:
+                print(f"\n📊 DAILY BREAKDOWN: {breakdown['title']}")
+                print(f"{'Date':<12} {'Views':>7} {'Read(s)':>9} {'Reactions':>10} {'Comments':>10}")
+                for day in breakdown['daily_data']:
+                    print(f"{day['date']:<12} {day['page_views']:>7} "
+                          f"{day['avg_read_seconds']:>9} {day['reactions']:>10} {day['comments']:>10}")
+            else:
+                print(f"❌ Article {article_id} not found")
         else:
-            print(f"❌ Article {article_id} not found")
+            print("Usage:")
+            print("  --refresh              Refresh article stats cache")
+            print("  --article=<id>         Show daily breakdown for article")
+            print("  --overview (default)   Show quality dashboard")
     else:
-        # Show full dashboard
+        # Show full dashboard (default)
         await service.show_quality_dashboard()
 
 
