@@ -176,24 +176,57 @@ class DevToService:
     
     async def fetch_historical_analytics(
         self,
-        article_id: int
+        article_id: int,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
     ) -> Dict[str, Dict[str, Any]]:
         """
         Fetch historical daily analytics (undocumented endpoint)
         
         Replaces: _fetch_historical_analytics() from devto_tracker.py
+        
+        NOTE: DEV.to API now requires 'start' and 'end' parameters (YYYY-MM-DD format)
+        If not provided, defaults to last 90 days
+        
+        Args:
+            article_id: Article ID
+            start_date: Start date (YYYY-MM-DD), defaults to 90 days ago
+            end_date: End date (YYYY-MM-DD), defaults to today
+        
         Returns: Dict mapping date strings to analytics data
         """
         if not self.http_client:
             raise RuntimeError("Service not initialized")
         
+        # Calculate default date range (last 90 days)
+        from datetime import timedelta
+        
+        if not end_date:
+            end_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        
+        if not start_date:
+            start_datetime = datetime.now(timezone.utc) - timedelta(days=90)
+            start_date = start_datetime.strftime('%Y-%m-%d')
+        
         response = await self.http_client.get(
             f"{self.base_url}/analytics/historical",
-            params={"article_id": article_id}
+            params={
+                "article_id": article_id,
+                "start": start_date,
+                "end": end_date
+            }
         )
         
         if response.status_code == 200:
             return response.json()
+        elif response.status_code == 422:
+            # Log the error for debugging
+            try:
+                error_data = response.json()
+                print(f"⚠️  API Error 422 for article {article_id}: {error_data}")
+            except:
+                print(f"⚠️  API Error 422 for article {article_id}")
+        
         return {}
     
     async def fetch_referrers(self, article_id: int) -> List[Dict[str, Any]]:
@@ -465,14 +498,19 @@ class DevToService:
         Uses: INSERT ... ON CONFLICT DO UPDATE
         Constraint: uq_daily_analytics_article_date
         """
+        from datetime import date as date_type
+        
         count = 0
         
         async with self.engine.begin() as conn:
             for date_str, stats in historical_data.items():
+                # Convert date string to date object (YYYY-MM-DD -> date)
+                date_obj = date_type.fromisoformat(date_str)
+                
                 # Build insert statement
                 stmt = pg_insert(daily_analytics).values(
                     article_id=article_id,
-                    date=date_str,
+                    date=date_obj,
                     page_views=stats['page_views']['total'],
                     average_read_time_seconds=stats['page_views'].get('average_read_time_in_seconds', 0),
                     total_read_time_seconds=stats['page_views'].get('total_read_time_in_seconds', 0),
