@@ -466,18 +466,16 @@ class NLPService:
         Returns:
             List of unanswered question dictionaries
         """
+        # Create alias ONCE (reuse it to avoid duplicate alias error)
+        comments_reply = comments.alias('reply')
+        
         # Subquery: Check if author replied after the question
-        author_replied = (
-            select(1)
-            .select_from(comments.alias('a'))
-            .where(
-                and_(
-                    comments.alias('a').c.article_id == comments.c.article_id,
-                    comments.alias('a').c.author_username == self.author_username,
-                    comments.alias('a').c.created_at > comments.c.created_at
-                )
+        has_reply = exists().where(
+            and_(
+                comments_reply.c.article_id == comments.c.article_id,
+                comments_reply.c.author_username == self.author_username,
+                comments_reply.c.created_at > comments.c.created_at
             )
-            .exists()
         )
         
         # Main query: Questions without author response
@@ -493,7 +491,7 @@ class NLPService:
                 and_(
                     comments.c.body_html.contains('?'),  # Contains question mark
                     comments.c.author_username != self.author_username,  # Not from author
-                    ~author_replied  # No author reply after
+                    ~has_reply  # NOT EXISTS
                 )
             )
             .order_by(comments.c.created_at.desc())
