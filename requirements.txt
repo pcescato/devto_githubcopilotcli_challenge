@@ -10,13 +10,19 @@ SQLAlchemy[asyncio]>=2.0.0  # Async ORM and Core
 psycopg2-binary>=2.9.9       # PostgreSQL adapter (for sync operations)
 pgvector>=0.2.0              # Vector similarity search
 
+# NLP and Text Analysis
+spacy>=3.7.0           # NLP models and entity recognition
+vaderSentiment>=3.3.2  # Sentiment analysis
+beautifulsoup4>=4.12.0 # HTML parsing
+lxml>=5.0.0            # Fast XML/HTML parser
+
 # CLI and scripting
 python-dotenv>=1.0.0    # Environment variable management
 tqdm>=4.66.0            # Progress bars
 python-dateutil>=2.8.2  # Advanced date parsing
 
 # Data processing (for NLP services)
-numpy>=1.24.0           # Required for pgvector
+numpy>=1.24.0           # Required for pgvector and spaCy
 pandas>=2.0.0           # Data analysis (optional, for future analytics)
 
 # Old synchronous libraries (for legacy scripts compatibility)
@@ -27,3 +33,6 @@ requests>=2.31.0        # HTTP client (used by old scripts)
 # pytest-asyncio>=0.21.0
 # black>=23.0.0
 # ruff>=0.1.0
+
+# Note: After installing, download spaCy model:
+# python3 -m spacy download en_core_web_sm

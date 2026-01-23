@@ -95,6 +95,69 @@ python -m app.services.analytics_service
 python -m app.services.analytics_service --article=123456
 ```
 
+### NLPService
+
+High-performance sentiment analysis and spam detection using VADER and spaCy.
+
+**Features:**
+- Pre-loaded spaCy and VADER models (loaded once at initialization)
+- CPU-bound tasks wrapped in `asyncio.to_thread()` for async compatibility
+- Exact sentiment thresholds: >=0.3 positive, <=-0.2 negative
+- Spam detection with keywords and emoji patterns
+- BeautifulSoup HTML cleaning (strips `<code>` and `<pre>`)
+- Batch processing (50 comments per batch)
+- Incremental processing with LEFT JOIN pattern
+- `ON CONFLICT DO UPDATE` for idempotency
+
+**Usage:**
+
+```python
+import asyncio
+from app.services import create_nlp_service
+
+async def main():
+    service = await create_nlp_service(author_username='your_username')
+    
+    # Run complete analysis
+    results = await service.run_analysis()
+    service.print_results(results)
+    
+    # Or individual operations
+    stats = await service.get_sentiment_stats()
+    questions = await service.find_unanswered_questions()
+    
+    # Process specific number of comments
+    results = await service.process_pending_comments(limit=100)
+
+asyncio.run(main())
+```
+
+**CLI Usage:**
+
+```bash
+# Analyze all pending comments
+python -m app.services.nlp_service
+
+# Analyze up to 100 comments
+python -m app.services.nlp_service --limit=100
+```
+
+**Sentiment Thresholds (STRICT):**
+- Score >= 0.3: 🌟 Positif (Positive)
+- Score <= -0.2: 😟 Négatif (Negative)
+- Otherwise: 😐 Neutre (Neutral)
+
+**Spam Detection:**
+- Keywords: investigator, hack, whatsapp, kasino, slot, 777, putar, kaya
+- Emojis: 🎡 🎰 💰
+- Gmail phishing: @ + .com + gmail
+
+**Prerequisites:**
+```bash
+# Install spaCy model
+python3 -m spacy download en_core_web_sm
+```
+
 ## Architecture
 
 ### Migration from SQLite to PostgreSQL
