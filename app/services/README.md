@@ -177,6 +177,60 @@ python -m app.services.nlp_service --limit=100
 python3 -m spacy download en_core_web_sm
 ```
 
+### ContentService
+
+Async article content collection and markdown parsing.
+
+**Features:**
+- Fetch full article content (body_markdown) from DEV.to API
+- Parse markdown to extract code blocks, links, images, headings
+- Calculate content metrics (word count, char count, etc.)
+- Store in article_content, article_code_blocks, article_links tables
+- ON CONFLICT DO UPDATE for idempotency
+- Incremental collection (LEFT JOIN ... IS NULL pattern)
+
+**Usage:**
+
+```python
+import asyncio
+from app.services import create_content_service
+
+async def main():
+    service = await create_content_service()
+    
+    # Collect new articles only
+    summary = await service.sync_all_content(mode="new")
+    
+    # Collect all articles
+    summary = await service.sync_all_content(mode="all")
+    
+    # Collect specific article
+    result = await service.sync_article_content(article_id=123456)
+
+asyncio.run(main())
+```
+
+**CLI Usage:**
+
+```bash
+# Collect new articles (not yet collected)
+python -m app.services.content_service --collect-new
+
+# Collect all articles
+python -m app.services.content_service --collect-all
+
+# Collect specific article
+python -m app.services.content_service --article=123456
+```
+
+**Parsing Logic (STRICT):**
+- Code blocks: ` ```language\ncode\n``` ` pattern
+- Links: `[text](url)` pattern
+- Images: `![alt](url)` pattern
+- Headings: `^#{1,6}\s+.+$` pattern
+- Link types: anchor (#), internal (dev.to), external (http), relative
+- Word count: Excludes code blocks
+
 ## Architecture
 
 ### Migration from SQLite to PostgreSQL
