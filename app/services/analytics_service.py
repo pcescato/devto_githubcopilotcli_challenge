@@ -316,13 +316,13 @@ class AnalyticsService:
         scored = []
         for row in rows:
             length_sec = (row['reading_time_minutes'] or 5) * 60
-            avg_read = row['avg_read_seconds'] or 0
+            avg_read = float(row['avg_read_seconds'] or 0)
             completion = min(100, (avg_read / length_sec) * 100) if length_sec > 0 else 0
             
             # Engagement on 90-day window
-            views = row['views_90d'] or 1
-            reactions = row['reactions_90d'] or 0
-            comments = row['comments_90d'] or 0
+            views = int(row['views_90d'] or 1)
+            reactions = int(row['reactions_90d'] or 0)
+            comments = int(row['comments_90d'] or 0)
             engagement = ((reactions + comments) / views) * 100
             
             # Quality score: 70% completion, 30% engagement (capped at 20%)
