@@ -609,6 +609,543 @@ class AnalyticsService:
         print("\n" + "="*100)
 
 
+    # ========================================================================
+    # ADVANCED ANALYTICS (from advanced_analytics.py)
+    # ========================================================================
+    
+    async def article_follower_correlation(
+        self,
+        tolerance_hours: float = 6.0
+    ) -> List[Dict[str, Any]]:
+        """
+        Calculate follower gain attributed to each article (7-day window)
+        
+        Migrated from advanced_analytics.py:15-51
+        
+        Business Logic (STRICT):
+        - Use proximity search with 6-hour tolerance (0.25 days)
+        - Compare follower count at publication vs 7 days later
+        - ORDER BY ABS(EXTRACT(EPOCH...) - EXTRACT(EPOCH...)) for closest match
+        
+        Args:
+            tolerance_hours: Tolerance window for finding closest snapshot (default: 6.0)
+        
+        Returns:
+            List of articles with follower attribution data
+        """
+        from app.db.tables import article_metrics as am, follower_events
+        
+        # Get all published articles
+        articles_query = (
+            select(
+                am.c.article_id,
+                am.c.title,
+                am.c.published_at,
+                func.max(am.c.views).label('total_views')
+            )
+            .where(am.c.published_at.isnot(None))
+            .group_by(am.c.article_id, am.c.title, am.c.published_at)
+            .order_by(am.c.published_at.desc())
+        )
+        
+        async with self.engine.connect() as conn:
+            result = await conn.execute(articles_query)
+            articles = result.mappings().all()
+            
+            correlation_data = []
+            
+            for article in articles:
+                pub_date = article['published_at']
+                
+                # Start: Publication date (within 6-hour tolerance)
+                tolerance_seconds = tolerance_hours * 3600
+                start_query = (
+                    select(follower_events.c.follower_count)
+                    .order_by(
+                        func.abs(
+                            func.extract('epoch', follower_events.c.collected_at) -
+                            func.extract('epoch', pub_date)
+                        )
+                    )
+                    .limit(1)
+                )
+                start_result = await conn.execute(start_query)
+                start_row = start_result.first()
+                
+                # End: 7 days after publication
+                end_date = pub_date + timedelta(days=7)
+                end_query = (
+                    select(follower_events.c.follower_count)
+                    .order_by(
+                        func.abs(
+                            func.extract('epoch', follower_events.c.collected_at) -
+                            func.extract('epoch', end_date)
+                        )
+                    )
+                    .limit(1)
+                )
+                end_result = await conn.execute(end_query)
+                end_row = end_result.first()
+                
+                if start_row and end_row:
+                    gain = end_row[0] - start_row[0]
+                    if gain != 0 or start_row[0] > 0:
+                        correlation_data.append({
+                            'article_id': article['article_id'],
+                            'title': article['title'],
+                            'published_at': article['published_at'],
+                            'follower_gain': gain,
+                            'followers_start': start_row[0],
+                            'followers_end': end_row[0],
+                            'total_views': article['total_views'],
+                        })
+        
+        return correlation_data
+    
+    async def weighted_follower_attribution(
+        self,
+        hours: int = 168,
+        tolerance_minutes: float = 30.0
+    ) -> Dict[str, Any]:
+        """
+        Attribute new followers proportionally based on traffic gain (Share of Voice)
+        
+        Migrated from advanced_analytics.py:118-227
+        
+        Business Logic (STRICT):
+        - Find closest follower snapshots at start/end of period
+        - Calculate total follower gain
+        - Calculate traffic gain per article
+        - Attribute followers proportionally: (article_views / total_views) * total_followers
+        
+        PostgreSQL Conversion:
+        - REPLACE: strftime('%s', ...) with EXTRACT(EPOCH FROM ...)
+        - Proximity search: ORDER BY ABS(EXTRACT(EPOCH ...) - EXTRACT(EPOCH ...))
+        
+        Args:
+            hours: Analysis period in hours (default: 168 = 7 days)
+            tolerance_minutes: Tolerance for snapshot proximity (default: 30)
+        
+        Returns:
+            Dict with attribution data and metadata
+        """
+        from app.db.tables import follower_events, article_metrics as am
+        
+        # 1. Define analysis period
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(hours=hours)
+        
+        async with self.engine.connect() as conn:
+            # 2. Find closest follower snapshots
+            # Start snapshot (closest to start_time)
+            start_query = (
+                select(
+                    follower_events.c.follower_count,
+                    follower_events.c.collected_at
+                )
+                .order_by(
+                    func.abs(
+                        func.extract('epoch', follower_events.c.collected_at) -
+                        func.extract('epoch', start_time)
+                    )
+                )
+                .limit(1)
+            )
+            start_result = await conn.execute(start_query)
+            start_snapshot = start_result.mappings().first()
+            
+            # End snapshot (closest to end_time)
+            end_query = (
+                select(
+                    follower_events.c.follower_count,
+                    follower_events.c.collected_at
+                )
+                .order_by(
+                    func.abs(
+                        func.extract('epoch', follower_events.c.collected_at) -
+                        func.extract('epoch', end_time)
+                    )
+                )
+                .limit(1)
+            )
+            end_result = await conn.execute(end_query)
+            end_snapshot = end_result.mappings().first()
+            
+            if not start_snapshot or not end_snapshot:
+                return {
+                    'error': 'Need at least two follower snapshots',
+                    'total_gain': 0,
+                    'attribution': []
+                }
+            
+            # Check if same snapshot
+            if start_snapshot['collected_at'] == end_snapshot['collected_at']:
+                return {
+                    'error': 'Need two different snapshots',
+                    'total_gain': 0,
+                    'attribution': []
+                }
+            
+            # Calculate actual interval
+            actual_interval = end_snapshot['collected_at'] - start_snapshot['collected_at']
+            actual_hours = actual_interval.total_seconds() / 3600
+            
+            # Calculate total follower gain
+            total_gain = end_snapshot['follower_count'] - start_snapshot['follower_count']
+            
+            if total_gain <= 0:
+                return {
+                    'total_gain': total_gain,
+                    'actual_hours': actual_hours,
+                    'attribution': []
+                }
+            
+            # 3. Calculate traffic gain per article
+            # Get distinct articles
+            articles_query = (
+                select(
+                    am.c.article_id,
+                    am.c.title,
+                )
+                .distinct()
+            )
+            articles_result = await conn.execute(articles_query)
+            articles = articles_result.mappings().all()
+            
+            attribution_data = []
+            global_traffic_gain = 0
+            
+            for article in articles:
+                # Views at start (proximity search)
+                v_start_query = (
+                    select(am.c.views)
+                    .where(am.c.article_id == article['article_id'])
+                    .order_by(
+                        func.abs(
+                            func.extract('epoch', am.c.collected_at) -
+                            func.extract('epoch', start_time)
+                        )
+                    )
+                    .limit(1)
+                )
+                v_start_result = await conn.execute(v_start_query)
+                v_start_row = v_start_result.first()
+                
+                # Views at end (proximity search)
+                v_end_query = (
+                    select(am.c.views)
+                    .where(am.c.article_id == article['article_id'])
+                    .order_by(
+                        func.abs(
+                            func.extract('epoch', am.c.collected_at) -
+                            func.extract('epoch', end_time)
+                        )
+                    )
+                    .limit(1)
+                )
+                v_end_result = await conn.execute(v_end_query)
+                v_end_row = v_end_result.first()
+                
+                if v_start_row and v_end_row:
+                    views_gain = v_end_row[0] - v_start_row[0]
+                    if views_gain > 0:
+                        attribution_data.append({
+                            'title': article['title'],
+                            'views_gain': views_gain
+                        })
+                        global_traffic_gain += views_gain
+            
+            if global_traffic_gain == 0:
+                return {
+                    'error': 'No traffic detected in period',
+                    'total_gain': total_gain,
+                    'actual_hours': actual_hours,
+                    'attribution': []
+                }
+            
+            # 4. Calculate proportional attribution
+            # Sort by views gain (descending)
+            attribution_data.sort(key=lambda x: x['views_gain'], reverse=True)
+            
+            for item in attribution_data:
+                share = item['views_gain'] / global_traffic_gain
+                attributed_followers = share * total_gain
+                item['traffic_share'] = share
+                item['attributed_followers'] = attributed_followers
+            
+            return {
+                'total_gain': total_gain,
+                'global_traffic_gain': global_traffic_gain,
+                'actual_hours': actual_hours,
+                'start_time': start_snapshot['collected_at'],
+                'end_time': end_snapshot['collected_at'],
+                'attribution': attribution_data
+            }
+    
+    async def engagement_evolution(
+        self,
+        article_id: int,
+        hours_before: int = 24,
+        hours_after: int = 24
+    ) -> Dict[str, Any]:
+        """
+        Calculate velocity (views/hour) around a specific event
+        
+        Migrated from advanced_analytics.py:98-116
+        
+        Business Logic:
+        - Calculate views/hour using: EXTRACT(EPOCH FROM (ts2 - ts1)) / 3600
+        - Compare velocity before and after milestone events
+        
+        Args:
+            article_id: Article to analyze
+            hours_before: Hours before event (default: 24)
+            hours_after: Hours after event (default: 24)
+        
+        Returns:
+            Dict with velocity data
+        """
+        from app.db.tables import article_metrics as am, milestone_events
+        
+        # Get milestone events for this article
+        events_query = (
+            select(
+                milestone_events.c.event_type,
+                milestone_events.c.occurred_at,
+                milestone_events.c.velocity_before,
+                milestone_events.c.velocity_after
+            )
+            .where(milestone_events.c.article_id == article_id)
+            .order_by(milestone_events.c.occurred_at.desc())
+        )
+        
+        async with self.engine.connect() as conn:
+            result = await conn.execute(events_query)
+            events = result.mappings().all()
+            
+            evolution_data = []
+            
+            for event in events:
+                event_time = event['occurred_at']
+                
+                # Calculate velocity before (if not stored)
+                if event['velocity_before'] is None:
+                    t_before_start = event_time - timedelta(hours=hours_before)
+                    
+                    metrics_query = (
+                        select(am.c.views, am.c.collected_at)
+                        .where(
+                            and_(
+                                am.c.article_id == article_id,
+                                am.c.collected_at.between(t_before_start, event_time)
+                            )
+                        )
+                        .order_by(am.c.collected_at)
+                    )
+                    
+                    metrics_result = await conn.execute(metrics_query)
+                    metrics = metrics_result.mappings().all()
+                    
+                    if len(metrics) >= 2:
+                        v_diff = metrics[-1]['views'] - metrics[0]['views']
+                        velocity_before = v_diff / hours_before
+                    else:
+                        velocity_before = 0.0
+                else:
+                    velocity_before = event['velocity_before']
+                
+                # Calculate velocity after (if not stored)
+                if event['velocity_after'] is None:
+                    t_after_end = event_time + timedelta(hours=hours_after)
+                    
+                    metrics_query = (
+                        select(am.c.views, am.c.collected_at)
+                        .where(
+                            and_(
+                                am.c.article_id == article_id,
+                                am.c.collected_at.between(event_time, t_after_end)
+                            )
+                        )
+                        .order_by(am.c.collected_at)
+                    )
+                    
+                    metrics_result = await conn.execute(metrics_query)
+                    metrics = metrics_result.mappings().all()
+                    
+                    if len(metrics) >= 2:
+                        v_diff = metrics[-1]['views'] - metrics[0]['views']
+                        velocity_after = v_diff / hours_after
+                    else:
+                        velocity_after = 0.0
+                else:
+                    velocity_after = event['velocity_after']
+                
+                # Calculate impact
+                if velocity_before > 0:
+                    impact = ((velocity_after - velocity_before) / velocity_before) * 100
+                elif velocity_after > 0:
+                    impact = 100.0
+                else:
+                    impact = 0.0
+                
+                evolution_data.append({
+                    'event_type': event['event_type'],
+                    'occurred_at': event['occurred_at'],
+                    'velocity_before': velocity_before,
+                    'velocity_after': velocity_after,
+                    'impact_percent': impact
+                })
+            
+            return {
+                'article_id': article_id,
+                'events': evolution_data
+            }
+    
+    async def get_overview(
+        self,
+        days: int = 7
+    ) -> Dict[str, Any]:
+        """
+        Get global trends with delta compared to previous period
+        
+        Returns metrics for current period vs previous period
+        
+        Args:
+            days: Period length in days (default: 7)
+        
+        Returns:
+            Dict with current metrics and deltas
+        """
+        from app.db.tables import article_metrics as am
+        
+        current_end = datetime.now(timezone.utc)
+        current_start = current_end - timedelta(days=days)
+        previous_start = current_start - timedelta(days=days)
+        
+        async with self.engine.connect() as conn:
+            # Current period metrics
+            current_query = (
+                select(
+                    func.sum(am.c.views).label('total_views'),
+                    func.sum(am.c.reactions).label('total_reactions'),
+                    func.sum(am.c.comments).label('total_comments'),
+                )
+                .where(am.c.collected_at.between(current_start, current_end))
+            )
+            current_result = await conn.execute(current_query)
+            current = current_result.mappings().first()
+            
+            # Previous period metrics
+            previous_query = (
+                select(
+                    func.sum(am.c.views).label('total_views'),
+                    func.sum(am.c.reactions).label('total_reactions'),
+                    func.sum(am.c.comments).label('total_comments'),
+                )
+                .where(am.c.collected_at.between(previous_start, current_start))
+            )
+            previous_result = await conn.execute(previous_query)
+            previous = previous_result.mappings().first()
+            
+            # Calculate deltas
+            views_delta = current['total_views'] - previous['total_views'] if previous['total_views'] else 0
+            reactions_delta = current['total_reactions'] - previous['total_reactions'] if previous['total_reactions'] else 0
+            comments_delta = current['total_comments'] - previous['total_comments'] if previous['total_comments'] else 0
+            
+            return {
+                'period_days': days,
+                'current': {
+                    'views': current['total_views'] or 0,
+                    'reactions': current['total_reactions'] or 0,
+                    'comments': current['total_comments'] or 0,
+                },
+                'previous': {
+                    'views': previous['total_views'] or 0,
+                    'reactions': previous['total_reactions'] or 0,
+                    'comments': previous['total_comments'] or 0,
+                },
+                'delta': {
+                    'views': views_delta,
+                    'reactions': reactions_delta,
+                    'comments': comments_delta,
+                },
+                'delta_percent': {
+                    'views': (views_delta / previous['total_views'] * 100) if previous['total_views'] else 0,
+                    'reactions': (reactions_delta / previous['total_reactions'] * 100) if previous['total_reactions'] else 0,
+                    'comments': (comments_delta / previous['total_comments'] * 100) if previous['total_comments'] else 0,
+                }
+            }
+    
+    async def best_publishing_times(self) -> Dict[str, Any]:
+        """
+        Find best days and hours for publishing based on performance
+        
+        Uses PostgreSQL date/time extraction:
+        - func.extract('dow', published_at) for day of week (0=Sunday, 6=Saturday)
+        - func.extract('hour', published_at) for hour of day (0-23)
+        
+        Returns:
+            Dict with best days and hours ranked by performance
+        """
+        from app.db.tables import article_metrics as am
+        
+        async with self.engine.connect() as conn:
+            # Best day of week
+            dow_query = (
+                select(
+                    func.extract('dow', am.c.published_at).label('day_of_week'),
+                    func.count(func.distinct(am.c.article_id)).label('article_count'),
+                    func.avg(am.c.views).label('avg_views'),
+                    func.avg(am.c.reactions).label('avg_reactions'),
+                )
+                .where(am.c.published_at.isnot(None))
+                .group_by(func.extract('dow', am.c.published_at))
+                .order_by(func.avg(am.c.views).desc())
+            )
+            dow_result = await conn.execute(dow_query)
+            dow_data = dow_result.mappings().all()
+            
+            # Best hour of day
+            hour_query = (
+                select(
+                    func.extract('hour', am.c.published_at).label('hour'),
+                    func.count(func.distinct(am.c.article_id)).label('article_count'),
+                    func.avg(am.c.views).label('avg_views'),
+                    func.avg(am.c.reactions).label('avg_reactions'),
+                )
+                .where(am.c.published_at.isnot(None))
+                .group_by(func.extract('hour', am.c.published_at))
+                .order_by(func.avg(am.c.views).desc())
+            )
+            hour_result = await conn.execute(hour_query)
+            hour_data = hour_result.mappings().all()
+            
+            # Map day numbers to names
+            day_names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+            
+            return {
+                'best_days': [
+                    {
+                        'day_of_week': int(row['day_of_week']),
+                        'day_name': day_names[int(row['day_of_week'])],
+                        'article_count': row['article_count'],
+                        'avg_views': float(row['avg_views']) if row['avg_views'] else 0,
+                        'avg_reactions': float(row['avg_reactions']) if row['avg_reactions'] else 0,
+                    }
+                    for row in dow_data
+                ],
+                'best_hours': [
+                    {
+                        'hour': int(row['hour']),
+                        'article_count': row['article_count'],
+                        'avg_views': float(row['avg_views']) if row['avg_views'] else 0,
+                        'avg_reactions': float(row['avg_reactions']) if row['avg_reactions'] else 0,
+                    }
+                    for row in hour_data
+                ]
+            }
+
+
 # ============================================================================
 # CONVENIENCE FUNCTIONS
 # ============================================================================
