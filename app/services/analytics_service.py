@@ -212,7 +212,7 @@ class AnalyticsService:
                 bookmarks_subq.label('bookmarks_sum'),
             )
             .where(article_metrics.c.reactions > min_reactions)
-            .group_by(article_metrics.c.article_id)
+            .group_by(article_metrics.c.article_id, article_metrics.c.title, article_metrics.c.published_at)
             .order_by(func.max(article_metrics.c.reactions).desc())
             .limit(limit)
         )
@@ -299,6 +299,8 @@ class AnalyticsService:
             .where(da_agg.c.views_90d > min_views)
             .group_by(
                 article_metrics.c.article_id,
+                article_metrics.c.title,
+                article_metrics.c.reading_time_minutes,
                 da_agg.c.avg_read_seconds,
                 da_agg.c.views_90d,
                 da_agg.c.reactions_90d,

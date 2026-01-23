@@ -89,8 +89,7 @@ class NLPService:
         
         # Spam detection configuration (preserved from nlp_analyzer.py:52-58)
         self.spam_keywords = [
-            'investigator', 'hack', 'whatsapp', 'kasino', 
-            'slot', '777', 'putar', 'kaya'
+            'investigator', 'hack', 'whatsapp', 'kasino', 'slot', '777', 'putar', 'kaya', 'investigator', 'hack', 'whatsapp', 'kasino', 'slot', '777', 'crypto', 'wallet', 'recovery', 'swindled'
         ]
         self.spam_patterns = ["🎡", "🎰", "💰"]
     
