@@ -1,0 +1,15 @@
+# Requirements for SQLite → PostgreSQL Migration
+# Install with: pip install -r scripts/requirements.txt
+
+# Progress bars
+tqdm>=4.66.0
+
+# Date handling
+python-dateutil>=2.8.2
+
+# Database (already in app/requirements.txt but listed for reference)
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.9
+
+# Environment variables
+python-dotenv>=1.0.0

@@ -1,0 +1,29 @@
+# DEV.to Analytics Platform - Requirements
+# Modern async PostgreSQL-first architecture
+
+# Core async framework
+httpx>=0.27.0          # Async HTTP client (replaces requests)
+asyncpg>=0.29.0        # Fast async PostgreSQL driver
+
+# Database
+SQLAlchemy[asyncio]>=2.0.0  # Async ORM and Core
+psycopg2-binary>=2.9.9       # PostgreSQL adapter (for sync operations)
+pgvector>=0.2.0              # Vector similarity search
+
+# CLI and scripting
+python-dotenv>=1.0.0    # Environment variable management
+tqdm>=4.66.0            # Progress bars
+python-dateutil>=2.8.2  # Advanced date parsing
+
+# Data processing (for NLP services)
+numpy>=1.24.0           # Required for pgvector
+pandas>=2.0.0           # Data analysis (optional, for future analytics)
+
+# Old synchronous libraries (for legacy scripts compatibility)
+requests>=2.31.0        # HTTP client (used by old scripts)
+
+# Optional: Development and testing
+# pytest>=7.4.0
+# pytest-asyncio>=0.21.0
+# black>=23.0.0
+# ruff>=0.1.0
