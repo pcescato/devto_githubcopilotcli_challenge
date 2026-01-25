@@ -649,33 +649,63 @@ async def create_service(api_key: Optional[str] = None) -> DevToService:
 
 
 async def main():
-    """CLI entry point for testing"""
+    """CLI entry point matching devto_tracker.py interface"""
     import sys
+    import argparse
     
-    if len(sys.argv) < 2:
-        print("Usage: python -m app.services.devto_service [--articles|--followers|--comments|--rich|--all]")
+    parser = argparse.ArgumentParser(
+        description='Dev.to Data Collector - Async PostgreSQL Edition',
+        epilog='Replaces devto_tracker.py with async PostgreSQL backend'
+    )
+    parser.add_argument('--collect', '--snapshot', action='store_true',
+                       help='Collect article snapshots (metrics + content tracking)')
+    parser.add_argument('--full', action='store_true',
+                       help='Full collection (articles + followers + comments)')
+    parser.add_argument('--rich', action='store_true',
+                       help='Rich analytics (historical data + referrers)')
+    parser.add_argument('--all', action='store_true',
+                       help='Complete sync: articles + followers + comments + rich analytics')
+    
+    # Also support new-style flags
+    parser.add_argument('--articles', action='store_true',
+                       help='Sync article metrics only (alias for --collect)')
+    parser.add_argument('--followers', action='store_true',
+                       help='Sync followers only')
+    parser.add_argument('--comments', action='store_true',
+                       help='Sync comments only')
+    
+    args = parser.parse_args()
+    
+    # Check if any action was specified
+    if not any([args.collect, args.full, args.rich, args.all, 
+                args.articles, args.followers, args.comments]):
+        parser.print_help()
         sys.exit(1)
-    
-    action = sys.argv[1]
     
     try:
         async with await create_service() as service:
-            if action == '--articles':
+            # Map flags to actions
+            if args.collect or args.articles:
                 await service.sync_articles()
-            elif action == '--followers':
-                await service.sync_followers()
-            elif action == '--comments':
-                await service.sync_comments()
-            elif action == '--rich':
+            elif args.full:
+                # Full collection: articles + followers + comments
+                collected_at = datetime.now(timezone.utc)
+                await service.sync_articles(collected_at)
+                await service.sync_followers(collected_at)
+                await service.sync_comments(collected_at=collected_at)
+            elif args.rich:
                 await service.sync_rich_analytics()
-            elif action == '--all':
+            elif args.all:
                 await service.sync_all()
-            else:
-                print(f"Unknown action: {action}")
-                sys.exit(1)
+            elif args.followers:
+                await service.sync_followers()
+            elif args.comments:
+                await service.sync_comments()
     
     except Exception as e:
         print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 
