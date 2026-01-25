@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, timezone
 
 import spacy
+from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from sqlalchemy import select, func, and_, exists
@@ -95,6 +96,9 @@ class NLPService:
     
     def _create_engine_from_env(self) -> AsyncEngine:
         """Create async engine from environment variables"""
+        # Load environment variables from .env file
+        load_dotenv()
+        
         host = os.getenv('POSTGRES_HOST', 'localhost')
         port = os.getenv('POSTGRES_PORT', '5432')
         database = os.getenv('POSTGRES_DB', 'devto_analytics')

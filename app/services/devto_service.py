@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Any
 from contextlib import asynccontextmanager
 
 import httpx
+from dotenv import load_dotenv
 from sqlalchemy import select, insert, update, func
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine, AsyncConnection
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -648,6 +649,9 @@ async def create_service(api_key: Optional[str] = None) -> DevToService:
     Returns:
         Initialized DevToService ready for use with async context manager
     """
+    # Load environment variables from .env file
+    load_dotenv()
+    
     if api_key is None:
         api_key = os.getenv('DEVTO_API_KEY')
         if not api_key:

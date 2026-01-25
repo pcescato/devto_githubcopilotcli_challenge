@@ -29,6 +29,7 @@ from typing import Dict, List, Optional, Tuple, Any
 import os
 
 import httpx
+from dotenv import load_dotenv
 from sqlalchemy import select, delete, and_
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine, AsyncConnection
 from sqlalchemy.dialects.postgresql import insert
@@ -501,6 +502,9 @@ async def create_content_service(
     Returns:
         ContentService instance
     """
+    # Load environment variables from .env file
+    load_dotenv()
+    
     if not api_key:
         api_key = os.getenv('DEVTO_API_KEY')
         if not api_key:

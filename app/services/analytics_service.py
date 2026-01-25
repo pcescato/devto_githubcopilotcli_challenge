@@ -11,6 +11,7 @@ Refactored from traffic_analytics.py (formerly quality_analytics.py)
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta, timezone
 
+from dotenv import load_dotenv
 from sqlalchemy import select, func, and_, or_, cast, Integer, Float, Text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.sql import text
@@ -1355,6 +1356,9 @@ async def create_analytics_service(engine: Optional[AsyncEngine] = None) -> Anal
     Returns:
         Initialized AnalyticsService
     """
+    # Load environment variables from .env file
+    load_dotenv()
+    
     if engine:
         return AnalyticsService(engine=engine)
     
