@@ -5,6 +5,11 @@
 httpx>=0.27.0          # Async HTTP client (replaces requests)
 asyncpg>=0.29.0        # Fast async PostgreSQL driver
 
+# FastAPI and Web Framework
+fastapi>=0.128.0       # Modern async web framework
+uvicorn[standard]>=0.40.0  # ASGI server with WebSocket and extras
+pydantic>=2.12.0       # Data validation and serialization
+
 # Database
 SQLAlchemy[asyncio]>=2.0.0  # Async ORM and Core
 psycopg2-binary>=2.9.9       # PostgreSQL adapter (for sync operations)
