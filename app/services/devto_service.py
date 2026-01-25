@@ -186,13 +186,8 @@ class DevToService:
         
         Replaces: _fetch_historical_analytics() from devto_tracker.py
         
-        NOTE: DEV.to API now requires 'start' and 'end' parameters (YYYY-MM-DD format)
-        If not provided, defaults to last 90 days
-        
-        Args:
-            article_id: Article ID
-            start_date: Start date (YYYY-MM-DD), defaults to 90 days ago
-            end_date: End date (YYYY-MM-DD), defaults to today
+        NOTE: DEV.to API changed - now requires 'start' and 'end' parameters
+        Defaults to last 90 days if not specified
         
         Returns: Dict mapping date strings to analytics data
         """
@@ -220,22 +215,15 @@ class DevToService:
         
         if response.status_code == 200:
             return response.json()
-        elif response.status_code == 422:
-            # Log the error for debugging
-            try:
-                error_data = response.json()
-                print(f"⚠️  API Error 422 for article {article_id}: {error_data}")
-            except:
-                print(f"⚠️  API Error 422 for article {article_id}")
         
         return {}
     
-    async def fetch_referrers(self, article_id: int) -> List[Dict[str, Any]]:
+    async def fetch_referrers(self, article_id: int) -> Dict[str, Any]:
         """
         Fetch traffic referrers (undocumented endpoint)
         
         Replaces: _fetch_referrers() from devto_tracker.py
-        Returns: List of referrer data
+        Returns: Dict with 'domains' key containing list of referrer data
         """
         if not self.http_client:
             raise RuntimeError("Service not initialized")
