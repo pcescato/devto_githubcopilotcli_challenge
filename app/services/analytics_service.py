@@ -277,72 +277,75 @@ class AnalyticsService:
         """
         Calculate quality scores based on read completion and engagement
         
-        Replaces: show_quality_scores() from traffic_analytics.py
+        Data source: article_metrics (latest snapshots) + daily_analytics (90d read time)
         
         Formula (preserved from original):
         - Completion %: (total_read_time / page_views) / (reading_time_minutes * 60) * 100
-        - Engagement %: ((reactions + comments) / views) * 100 (from latest snapshot)
+        - Engagement %: ((reactions + comments) / views) * 100
         - Quality Score: (completion * 0.7) + (min(engagement, 20) * 1.5)
-        
-        Data sources:
-        - 90d traffic: SUM(daily_analytics.page_views) - daily values
-        - Read time: SUM(total_read_time_seconds) / SUM(page_views) - weighted average
-        - Engagement: latest article_metrics snapshot (reactions + comments) / views
         
         Returns: List of articles sorted by quality score
         """
-        # Aggregate daily analytics per article (90-day window)
-        da_agg = (
-            select(
-                daily_analytics.c.article_id,
-                # SUM page_views (daily values)
-                func.sum(daily_analytics.c.page_views).label('views_90d'),
-                # SUM total read time for weighted average
-                func.sum(daily_analytics.c.total_read_time_seconds).label('total_read_time'),
-            )
-            .group_by(daily_analytics.c.article_id)
-            .alias('da_agg')
-        )
+        from app.db.tables import article_metrics
         
-        # Latest article_metrics per article (DISTINCT ON for deduplication)
-        # PostgreSQL-specific for efficiency
+        # Get latest snapshot per article from article_metrics using ROW_NUMBER()
         latest_metrics = (
             select(
                 article_metrics.c.article_id,
                 article_metrics.c.title,
-                article_metrics.c.reading_time_minutes,
                 article_metrics.c.views,
                 article_metrics.c.reactions,
                 article_metrics.c.comments,
+                article_metrics.c.reading_time_minutes,
+                article_metrics.c.collected_at,
+                func.row_number().over(
+                    partition_by=article_metrics.c.article_id,
+                    order_by=article_metrics.c.collected_at.desc()
+                ).label('rn')
             )
-            .distinct(article_metrics.c.article_id)
-            .order_by(
-                article_metrics.c.article_id,
-                article_metrics.c.collected_at.desc()
-            )
-            .alias('latest_metrics')
-        )
+        ).subquery('latest_metrics_rn')
         
-        # Join both sources
-        query = (
+        # Filter to most recent only
+        latest = (
             select(
                 latest_metrics.c.article_id,
                 latest_metrics.c.title,
-                latest_metrics.c.reading_time_minutes,
                 latest_metrics.c.views,
                 latest_metrics.c.reactions,
                 latest_metrics.c.comments,
-                da_agg.c.views_90d,
-                da_agg.c.total_read_time,
+                latest_metrics.c.reading_time_minutes,
+                latest_metrics.c.collected_at
+            )
+            .where(latest_metrics.c.rn == 1)
+            .where(latest_metrics.c.views >= min_views)
+        ).subquery('latest')
+        
+        # Aggregate 90-day read time from daily_analytics
+        da_agg = (
+            select(
+                daily_analytics.c.article_id,
+                func.sum(daily_analytics.c.page_views).label('da_views'),
+                func.sum(daily_analytics.c.total_read_time_seconds).label('total_read_time')
+            )
+            .group_by(daily_analytics.c.article_id)
+        ).subquery('da_agg')
+        
+        # Join latest metrics with daily analytics for read time
+        query = (
+            select(
+                latest.c.article_id,
+                latest.c.title,
+                latest.c.views,
+                latest.c.reactions,
+                latest.c.comments,
+                latest.c.reading_time_minutes,
+                latest.c.collected_at,
+                da_agg.c.da_views,
+                da_agg.c.total_read_time
             )
             .select_from(
-                latest_metrics.join(
-                    da_agg,
-                    latest_metrics.c.article_id == da_agg.c.article_id,
-                    isouter=True
-                )
+                latest.outerjoin(da_agg, latest.c.article_id == da_agg.c.article_id)
             )
-            .where(func.coalesce(da_agg.c.views_90d, 0) > min_views)
         )
         
         async with self.engine.connect() as conn:
@@ -352,19 +355,27 @@ class AnalyticsService:
         # Calculate quality scores
         scored = []
         for row in rows:
-            # Read completion: weighted average from 90d data
+            # Read completion: use 90d daily_analytics if available, otherwise estimate
             length_sec = (row['reading_time_minutes'] or 5) * 60
-            views_90d = int(row['views_90d'] or 1)
+            lifetime_views = int(row['views'] or 1)
+            
+            # Use daily_analytics read time if available (90d window)
+            da_views = int(row['da_views'] or 0)
             total_read = float(row['total_read_time'] or 0)
             
-            # Weighted average: total read time / total views
-            avg_read = total_read / views_90d if views_90d > 0 else 0
-            completion = min(100, (avg_read / length_sec) * 100) if length_sec > 0 else 0
+            if da_views > 0 and total_read > 0:
+                # Calculate completion from 90-day data
+                avg_read = total_read / da_views
+                completion = min(100, (avg_read / length_sec) * 100) if length_sec > 0 else 0
+            else:
+                # No 90-day data, estimate 50% completion
+                completion = 50.0
             
-            # Engagement: from latest snapshot (lifetime totals)
-            lifetime_views = int(row['views'] or 1)
+            # Engagement: Use lifetime totals from article_metrics
             reactions = int(row['reactions'] or 0)
             comments = int(row['comments'] or 0)
+            
+            # Engagement calculation with NULLIF protection
             engagement = ((reactions + comments) / lifetime_views) * 100 if lifetime_views > 0 else 0
             
             # Quality score: 70% completion, 30% engagement (capped at 20%)
@@ -374,12 +385,12 @@ class AnalyticsService:
                 'article_id': row['article_id'],
                 'title': row['title'],
                 'reading_time_minutes': row['reading_time_minutes'],
-                'views_90d': views_90d,
-                'lifetime_views': lifetime_views,
-                'reactions': reactions,
-                'comments': comments,
+                'total_views': lifetime_views,
+                'total_reactions': reactions,
+                'total_comments': comments,
                 'completion_percent': round(completion, 1),
                 'engagement_percent': round(engagement, 1),
+                'engagement_rate': round(engagement, 2),
                 'quality_score': round(score, 1),
             })
         
