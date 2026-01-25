@@ -1,212 +1,163 @@
-# Database Schema Fixes Applied ✅
+# Analytics Service Fixes - January 25, 2026
 
-## Issues Fixed
+## Problem Summary
 
-### 1. Foreign Key Constraints (Fixed)
+The analytics dashboard was showing incorrect data:
+- Engagement rates >100% (inflated)
+- Duplicate articles in results
+- Incorrect read completion calculations
+- Mismatched data between sources
 
-**Problem**: 7 tables referenced `article_metrics.article_id` with foreign keys, but that column isn't unique.
+## Root Causes
 
-**Solution**: Removed all FK constraints to `article_metrics.article_id`. These are now simple integer columns with indexes.
+### 1. Data Structure Misunderstanding
+**article_metrics**: Time-series table with multiple snapshots per article
+- Each row is a complete snapshot at collection time
+- Contains lifetime totals (views, reactions, comments)
+- Multiple rows per article_id with different collected_at timestamps
 
-**Files Modified**:
-- `app/db/tables.py`
+**daily_analytics**: Daily breakdown (90-day window from DEV.to API)
+- `page_views`: Daily count (can SUM for period total)
+- `total_read_time_seconds`: Daily total (can SUM for weighted average)
+- `reactions_total`, `comments_total`: Cumulative values (DON'T SUM)
 
-**Status**: ✅ Fixed - Schema creates successfully
+### 2. Specific Issues Fixed
 
----
-
-### 2. Table Partitioning (Fixed)
-
-**Problem**: 
-```
-"daily_analytics" is not partitioned
-```
-
-**Root Cause**: SQLAlchemy Core doesn't support declarative partitioning. The table was created as a regular table.
-
-**Solution**: Modified `init_schema()` to create `daily_analytics` manually with DDL:
-
+#### A. Duplicate Articles
+**Problem**: Using `ROW_NUMBER()` window function for deduplication
+**Solution**: PostgreSQL-specific `DISTINCT ON` - more efficient and cleaner
 ```sql
-CREATE TABLE devto_analytics.daily_analytics (
-    ...
-) PARTITION BY RANGE (date);
+-- BEFORE (complex)
+SELECT * FROM (
+  SELECT *, ROW_NUMBER() OVER (PARTITION BY article_id ORDER BY collected_at DESC) as rn
+  FROM article_metrics
+) WHERE rn = 1
+
+-- AFTER (PostgreSQL DISTINCT ON)
+SELECT DISTINCT ON (article_id) *
+FROM article_metrics
+ORDER BY article_id, collected_at DESC
 ```
 
-**Files Modified**:
-- `app/db/connection.py:init_schema()` (lines 153-207)
-
-**Status**: ✅ Fixed - Table created as partitioned
-
----
-
-### 3. Insert Conflict Handling (Fixed)
-
-**Problem**:
-```
-'Insert' object has no attribute 'on_conflict_do_nothing'
-```
-
-**Root Cause**: Using generic `sqlalchemy.insert` instead of PostgreSQL-specific dialect.
-
-**Solution**: Changed imports to use `sqlalchemy.dialects.postgresql.insert`:
-
+#### B. Incorrect Engagement Rates (>100%)
+**Problem**: Summing cumulative values from daily_analytics
 ```python
-# Before
-from sqlalchemy import insert
-stmt = insert(table).values(**values_dict).on_conflict_do_nothing()
-
-# After  
-from sqlalchemy.dialects.postgresql import insert
-stmt = insert(table).values(**values_dict)
-stmt = stmt.on_conflict_do_nothing()
+# WRONG: reactions_total and comments_total are cumulative
+reactions = SUM(daily_analytics.reactions_total)  # Double/triple counting!
+engagement = (reactions + comments) / views_90d   # Result: 200%+
 ```
 
-**Files Modified**:
-- `app/db/connection.py:insert_or_ignore()` (line 231)
-- `app/db/connection.py:insert_or_update()` (line 260)
-
-**Status**: ✅ Fixed - Insert operations work correctly
-
----
-
-## Summary of Changes
-
-| File | Changes | Lines |
-|------|---------|-------|
-| `app/db/tables.py` | Removed 7 FK constraints | ~130, 174, 221, 245, 365, 393, 443 |
-| `app/db/connection.py` | Manual partition DDL | 153-207 |
-| `app/db/connection.py` | PostgreSQL insert dialect | 231, 260 |
-
-## Testing
-
-### Drop and Recreate (if needed)
-
-```bash
-# Connect to database
-psql devto_analytics
-
-# Drop schema
-DROP SCHEMA IF EXISTS devto_analytics CASCADE;
-
-# Exit psql
-\q
-```
-
-### Run Initialization
-
-```bash
-cd app
-python3 init_database.py
-```
-
-### Expected Output
-
-```
-======================================================================
-🚀 DEV.to Analytics - PostgreSQL 18 Database Setup
-======================================================================
-
-📋 Checking environment variables...
-  ✅ Environment variables set
-
-1️⃣ Testing database connection...
-  ✅ Connection successful
-
-2️⃣ Initializing PostgreSQL extensions...
-✅ PostgreSQL extensions initialized
-
-3️⃣ Creating database schema...
-✅ Database schema initialized
-
-🔍 Verifying schema...
-  ✅ 16 tables found
-  📊 Expected: 16
-
-📅 Creating 12 monthly partitions...
-  ✓ daily_analytics_2026_01
-  ✓ daily_analytics_2026_02
-  ✓ daily_analytics_2026_03
-  ✓ daily_analytics_2026_04
-  ✓ daily_analytics_2026_05
-  ✓ daily_analytics_2026_06
-  ✓ daily_analytics_2026_07
-  ✓ daily_analytics_2026_08
-  ✓ daily_analytics_2026_09
-  ✓ daily_analytics_2026_10
-  ✓ daily_analytics_2026_11
-  ✓ daily_analytics_2026_12
-
-✅ Created 12/12 partitions
-
-🧬 Seeding author themes...
-  ✓ Expertise Tech
-  ✓ Human & Career
-  ✓ Culture & Agile
-
-======================================================================
-✅ Database setup complete!
-======================================================================
-```
-
-## Verification
-
-### Check Tables
-
-```bash
-psql devto_analytics -c "\dt devto_analytics.*"
-```
-
-Should show 16 tables + 12 partition tables (28 total).
-
-### Check Partitioning
-
-```sql
--- Check if daily_analytics is partitioned
-SELECT tablename, pg_get_partkeydef(tablename::regclass) 
-FROM pg_tables 
-WHERE schemaname = 'devto_analytics' 
-  AND tablename = 'daily_analytics';
-
--- View all partitions
-SELECT tablename 
-FROM pg_tables 
-WHERE schemaname = 'devto_analytics' 
-  AND tablename LIKE 'daily_analytics_%'
-ORDER BY tablename;
-```
-
-### Test Insert
-
+**Solution**: Use latest snapshot from article_metrics
 ```python
-from app.db.connection import get_connection
-from app.db.tables import author_themes
-from sqlalchemy import select
-
-with get_connection() as conn:
-    result = conn.execute(select(author_themes))
-    print(f"Author themes: {result.rowcount} rows")
-    for row in result.mappings():
-        print(f"  - {row['theme_name']}")
+# CORRECT: Use lifetime totals from latest snapshot
+latest_snapshot = DISTINCT ON (article_id) article_metrics
+engagement = (latest_snapshot.reactions + latest_snapshot.comments) / latest_snapshot.views
 ```
 
-## Next Steps
+**Results**:
+- BEFORE: Engagement 40.7%, 106.9%, 200%+ (clearly wrong)
+- AFTER: Engagement 3.7-11.0% (realistic for DEV.to)
 
-1. ✅ Schema created successfully
-2. ✅ Partitions created
-3. ✅ Seed data inserted
-4. ⏭️ Start data migration from SQLite
-5. ⏭️ Test all business logic queries
-6. ⏭️ Populate with real data
+#### C. Incorrect 90-Day Traffic
+**Problem**: Using `MAX(page_views)` - only captured single day's max
+```python
+# WRONG: Gets one day's value, not 90-day total
+views_90d = MAX(daily_analytics.page_views)  # e.g., 42 views
+```
 
-## Documentation
+**Solution**: Sum daily values
+```python
+# CORRECT: Aggregate all daily page views
+views_90d = SUM(daily_analytics.page_views)  # e.g., 2,500 views
+```
 
-- `SCHEMA_FIX.md` - Foreign key issue details
-- `PARTITIONING_NOTE.md` - Partitioning implementation
-- `FIXES_APPLIED.md` - This file
-- `app/db/README.md` - Complete usage guide
+#### D. Incorrect Read Completion (Average of Averages)
+**Problem**: Taking average of daily averages
+```python
+# WRONG: "Average of averages" is mathematically invalid
+avg_read = AVG(daily_analytics.average_read_time_seconds)
+# Day 1: 5 views, 300s avg → contributes 300 to average
+# Day 2: 500 views, 100s avg → contributes 100 to average
+# Result heavily biased toward low-traffic days
+```
 
----
+**Solution**: Weighted average using totals
+```python
+# CORRECT: Total read time / total views
+total_read = SUM(daily_analytics.total_read_time_seconds)
+total_views = SUM(daily_analytics.page_views)
+avg_read = total_read / total_views  # Properly weighted
+completion = (avg_read / (reading_time_minutes * 60)) * 100
+```
 
-**Status**: All issues resolved ✅  
-**Date**: 2026-01-23  
-**Ready for production**: Yes
+**Formula**: `(SUM(total_read_time_seconds) / SUM(page_views)) / (reading_time_minutes * 60) * 100`
+
+## Changes Made
+
+### Files Modified
+1. **app/services/analytics_service.py** (116 insertions, 96 deletions)
+   - `get_read_time_analysis()`: Fixed deduplication, weighted avg, SUM views
+   - `get_quality_scores()`: Fixed engagement source, weighted avg, DISTINCT ON
+   - `get_long_tail_champions()`: Fixed deduplication to DISTINCT ON
+   - `refresh_all_stats()`: Applied all same fixes for cache consistency
+
+### Commits
+1. `962bc71` - Fix duplicate articles in analytics dashboard (ROW_NUMBER deduplication)
+2. `4997784` - Fix analytics calculations: correct engagement rates and read completion
+
+## Validation
+
+### Before
+```
+⭐ QUALITY SCORES (90-day performance)
+Title                                      Quality   Read %   Engage %
+Actually Agile...                           100.0   100.0%     40.7%  ❌ Unrealistic
+From WordPress to Astro...                   57.0    49.3%     15.0%  ❌ Still high
+Why Streamlit + Cloud Run...                 33.9     5.5%    106.9%  ❌ IMPOSSIBLE!
+```
+
+### After
+```
+⭐ QUALITY SCORES (90-day performance)
+Title                                      Quality   Read %   Engage %
+Building with AI without losing control..    86.5   100.0%     11.0%  ✅ Realistic
+Respiration                                  83.2   100.0%      8.8%  ✅ Realistic
+Actually Agile...                            75.9   100.0%      3.9%  ✅ Realistic
+```
+
+### Test Commands
+```bash
+# View dashboard
+python3 -m app.services.analytics_service
+
+# Refresh cache
+python3 -m app.services.analytics_service --refresh
+```
+
+## Business Logic Preserved
+
+All original formulas maintained:
+- **Quality Score**: `(completion * 0.7) + (min(engagement, 20) * 1.5)`
+- **Engagement Cap**: 20% maximum (30% weight in quality score)
+- **Completion Cap**: 100% maximum (70% weight in quality score)
+
+Only the **data sources** were corrected, not the business logic.
+
+## Technical Patterns Established
+
+### For Future Queries
+1. **Get latest article snapshot**: Use `DISTINCT ON (article_id)` ordered by `collected_at DESC`
+2. **Aggregate 90d traffic**: Use `SUM(daily_analytics.page_views)` - daily values
+3. **Calculate read time**: Use `SUM(total_read_time_seconds) / SUM(page_views)` - weighted avg
+4. **Get engagement**: Use latest `article_metrics` snapshot, NOT daily_analytics aggregates
+5. **Avoid**: Summing cumulative columns (reactions_total, comments_total, follows_total)
+
+## Impact
+
+✅ **Engagement rates realistic**: Now showing 3-11% (typical for technical content)  
+✅ **No duplicates**: Each article appears once  
+✅ **Accurate read metrics**: Properly weighted by view count  
+✅ **Cache consistency**: refresh_all_stats() uses same corrected logic  
+✅ **Data integrity**: article_metrics (source of truth) vs daily_analytics (90d window)  
+
+The analytics dashboard now provides accurate, actionable insights based on correct data interpretation.
