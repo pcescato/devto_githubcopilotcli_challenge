@@ -85,18 +85,33 @@ class AnalyticsService:
             .alias('da_agg')
         )
         
-        # Main query joining with article_metrics
+        # Subquery to get latest article_metrics per article (deduplication)
+        latest_metrics = (
+            select(
+                article_metrics.c.article_id,
+                article_metrics.c.title,
+                article_metrics.c.reading_time_minutes,
+                article_metrics.c.published_at,
+                func.row_number().over(
+                    partition_by=article_metrics.c.article_id,
+                    order_by=article_metrics.c.collected_at.desc()
+                ).label('rn')
+            )
+            .subquery('latest_metrics')
+        )
+        
+        # Main query joining with deduplicated article_metrics
         # PostgreSQL: age(NOW(), published_at) returns INTERVAL
         # EXTRACT(EPOCH FROM interval) / 86400 converts to days
         query = (
             select(
                 da_agg.c.article_id,
-                article_metrics.c.title,
-                article_metrics.c.reading_time_minutes,
-                article_metrics.c.published_at,
+                latest_metrics.c.title,
+                latest_metrics.c.reading_time_minutes,
+                latest_metrics.c.published_at,
                 # Age in days: NOW() - published_at converted to days
                 (
-                    func.extract('epoch', func.now() - article_metrics.c.published_at) / 86400
+                    func.extract('epoch', func.now() - latest_metrics.c.published_at) / 86400
                 ).label('age_days'),
                 da_agg.c.avg_read_seconds,
                 da_agg.c.total_views,
@@ -105,8 +120,11 @@ class AnalyticsService:
             )
             .select_from(
                 da_agg.join(
-                    article_metrics,
-                    da_agg.c.article_id == article_metrics.c.article_id
+                    latest_metrics,
+                    and_(
+                        da_agg.c.article_id == latest_metrics.c.article_id,
+                        latest_metrics.c.rn == 1
+                    )
                 )
             )
             .where(da_agg.c.total_views > min_views)
@@ -280,33 +298,41 @@ class AnalyticsService:
             .alias('da_agg')
         )
         
-        # Join with article_metrics
-        query = (
+        # Subquery to get latest article_metrics per article (deduplication)
+        latest_metrics = (
             select(
                 article_metrics.c.article_id,
                 article_metrics.c.title,
                 article_metrics.c.reading_time_minutes,
+                func.row_number().over(
+                    partition_by=article_metrics.c.article_id,
+                    order_by=article_metrics.c.collected_at.desc()
+                ).label('rn')
+            )
+            .subquery('latest_metrics')
+        )
+        
+        # Join with deduplicated article_metrics
+        query = (
+            select(
+                latest_metrics.c.article_id,
+                latest_metrics.c.title,
+                latest_metrics.c.reading_time_minutes,
                 da_agg.c.avg_read_seconds,
                 da_agg.c.views_90d,
                 da_agg.c.reactions_90d,
                 da_agg.c.comments_90d,
             )
             .select_from(
-                article_metrics.join(
+                latest_metrics.join(
                     da_agg,
-                    article_metrics.c.article_id == da_agg.c.article_id
+                    and_(
+                        latest_metrics.c.article_id == da_agg.c.article_id,
+                        latest_metrics.c.rn == 1
+                    )
                 )
             )
             .where(da_agg.c.views_90d > min_views)
-            .group_by(
-                article_metrics.c.article_id,
-                article_metrics.c.title,
-                article_metrics.c.reading_time_minutes,
-                da_agg.c.avg_read_seconds,
-                da_agg.c.views_90d,
-                da_agg.c.reactions_90d,
-                da_agg.c.comments_90d,
-            )
         )
         
         async with self.engine.connect() as conn:
@@ -390,15 +416,18 @@ class AnalyticsService:
             .alias('stats')
         )
         
-        # Distinct article info (deduplicate snapshots)
+        # Latest article info per article_id (deduplicate snapshots)
         article_subq = (
             select(
                 article_metrics.c.article_id,
                 article_metrics.c.title,
                 article_metrics.c.published_at,
+                func.row_number().over(
+                    partition_by=article_metrics.c.article_id,
+                    order_by=article_metrics.c.collected_at.desc()
+                ).label('rn')
             )
-            .distinct()
-            .alias('am')
+            .subquery('am')
         )
         
         # Main query
@@ -416,7 +445,10 @@ class AnalyticsService:
             .select_from(
                 stats_subq.join(
                     article_subq,
-                    stats_subq.c.article_id == article_subq.c.article_id
+                    and_(
+                        stats_subq.c.article_id == article_subq.c.article_id,
+                        article_subq.c.rn == 1
+                    )
                 )
             )
             .where(
