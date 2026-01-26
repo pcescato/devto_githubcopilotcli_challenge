@@ -98,9 +98,9 @@ def validate_table_features():
     from app.db.tables import (
         article_metrics,
         article_content,
-        comments,
+        article_code_blocks,
+        article_links,
         comment_insights,
-        daily_analytics,
     )
     from sqlalchemy.dialects.postgresql import JSONB, ARRAY
     from pgvector.sqlalchemy import Vector
@@ -123,8 +123,8 @@ def validate_table_features():
         return False
     print("  ✅ article_content has Vector(1536) column")
     
-    # Check foreign keys
-    fks = [fk for table in [comments, comment_insights, daily_analytics] 
+    # Check foreign keys (correct tables: article_code_blocks, article_links, comment_insights)
+    fks = [fk for table in [article_code_blocks, article_links, comment_insights] 
            for fk in table.foreign_keys]
     
     if len(fks) < 3:
@@ -133,7 +133,7 @@ def validate_table_features():
     print(f"  ✅ Foreign keys defined ({len(fks)} total)")
     
     # Check unique constraints
-    uqs = [c for table in [article_metrics, comments, daily_analytics] 
+    uqs = [c for table in [article_metrics, article_content] 
            for c in table.constraints if hasattr(c, 'columns') and len(c.columns) > 0]
     
     print(f"  ✅ Unique constraints defined ({len(uqs)} total)")
