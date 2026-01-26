@@ -81,7 +81,7 @@ services:
 
   # Apache Superset - Business intelligence platform
   superset:
-    image: apache/superset:latest
+    image: apache/superset:${SUPERSET_TAG:-latest-dev}
     container_name: devto_superset
     restart: unless-stopped
     environment:
@@ -113,17 +113,7 @@ services:
       - superset_data:/app/superset_home
       - ./docker/superset/init-superset.sh:/app/docker/init-superset.sh:ro
       - ./docker/superset/superset_config.py:/app/pythonpath/superset_config.py:ro
-    command: >
-      sh -c "
-        /app/docker/init-superset.sh &&
-        gunicorn 
-          --bind 0.0.0.0:8088 
-          --workers 4 
-          --timeout 300 
-          --limit-request-line 0 
-          --limit-request-field_size 0 
-          'superset.app:create_app()'
-      "
+    command: ["/bin/bash", "/app/docker/init-superset.sh"]
     depends_on:
       postgres:
         condition: service_healthy

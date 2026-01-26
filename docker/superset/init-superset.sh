@@ -3,18 +3,56 @@ set -e
 
 echo "🚀 Initializing Apache Superset..."
 
-# Wait for database to be ready
+# Wait for database to be ready (using Python instead of nc)
 echo "⏳ Waiting for PostgreSQL..."
-while ! nc -z postgres 5432; do
-  sleep 1
-done
+python3 <<EOF
+import socket
+import time
+import sys
+
+def wait_for_service(host, port, timeout=60):
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            sock.connect((host, port))
+            sock.close()
+            return True
+        except (socket.error, socket.timeout):
+            time.sleep(1)
+    return False
+
+if not wait_for_service('postgres', 5432):
+    print("❌ PostgreSQL not ready after 60s")
+    sys.exit(1)
+EOF
 echo "✅ PostgreSQL is ready"
 
 # Wait for Valkey to be ready
 echo "⏳ Waiting for Valkey..."
-while ! nc -z valkey 6379; do
-  sleep 1
-done
+python3 <<EOF
+import socket
+import time
+import sys
+
+def wait_for_service(host, port, timeout=60):
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            sock.connect((host, port))
+            sock.close()
+            return True
+        except (socket.error, socket.timeout):
+            time.sleep(1)
+    return False
+
+if not wait_for_service('valkey', 6379):
+    print("❌ Valkey not ready after 60s")
+    sys.exit(1)
+EOF
 echo "✅ Valkey is ready"
 
 # Initialize Superset database
@@ -35,28 +73,6 @@ if [ ! -f /app/superset_home/.superset_initialized ]; then
   echo "🔧 Initializing Superset..."
   superset init
   
-  # Import roles and permissions
-  echo "🔐 Setting up roles and permissions..."
-  superset import-directory /app/docker/import/ || true
-  
-  # Create DEV.to Analytics database connection
-  echo "🔌 Creating database connection..."
-  cat <<EOF | superset fab create-db
-{
-  "database_name": "DEV.to Analytics",
-  "sqlalchemy_uri": "postgresql+psycopg2://${POSTGRES_USER:-devto}:${POSTGRES_PASSWORD:-devto_secure_password}@postgres:5432/${POSTGRES_DB:-devto_analytics}",
-  "expose_in_sqllab": true,
-  "allow_ctas": true,
-  "allow_cvas": true,
-  "allow_dml": true,
-  "allow_multi_schema_metadata_fetch": true,
-  "cache_timeout": 300,
-  "extra": "{\"metadata_params\":{},\"engine_params\":{\"connect_args\":{\"options\":\"-c search_path=devto_analytics,public\"}}}",
-  "impersonate_user": false,
-  "server_cert": null
-}
-EOF
-  
   # Mark as initialized
   touch /app/superset_home/.superset_initialized
   
@@ -74,5 +90,14 @@ else
   echo "✅ Superset already initialized"
 fi
 
-# Start Superset
+# Start Superset web server
 echo "🚀 Starting Superset web server..."
+exec gunicorn \
+  --bind 0.0.0.0:8088 \
+  --workers 4 \
+  --timeout 300 \
+  --limit-request-line 0 \
+  --limit-request-field_size 0 \
+  --access-logfile - \
+  --error-logfile - \
+  "superset.app:create_app()"
