@@ -54,6 +54,68 @@ uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --workers 4
 - **ReDoc**: http://localhost:8000/redoc
 - **OpenAPI JSON**: http://localhost:8000/openapi.json
 
+## Authentication
+
+All API endpoints (except `/` and `/api/health`) require authentication via API key.
+
+### How to Authenticate
+
+Include the API key in the request header:
+```bash
+X-API-Key: your_api_key_here
+```
+
+### Demo API Key
+
+For testing and development, use:
+```
+devto-challenge-2026
+```
+
+### Configuration
+
+Set your API key in `.env`:
+```bash
+API_KEY=your_secret_api_key_here
+```
+
+If not set, the demo key `devto-challenge-2026` will be used as fallback.
+
+### Example Requests
+
+**Without API key (will fail):**
+```bash
+curl http://localhost:8000/api/analytics/quality
+# Response: {"detail":"Missing API Key. Include 'X-API-Key' header in your request."}
+```
+
+**With invalid API key (will fail):**
+```bash
+curl -H "X-API-Key: wrong_key" http://localhost:8000/api/analytics/quality
+# Response: {"detail":"Invalid API Key"}
+```
+
+**With valid API key (success):**
+```bash
+curl -H "X-API-Key: devto-challenge-2026" \
+     "http://localhost:8000/api/analytics/quality?limit=5"
+# Response: [{"article_id": 2969205, "quality_score": 75.9, ...}]
+```
+
+**Public endpoints (no authentication required):**
+```bash
+curl http://localhost:8000/api/health
+# Response: {"status":"ok","database":"connected"}
+```
+
+### Swagger UI Authentication
+
+1. Open http://localhost:8000/docs
+2. Click the **"Authorize"** button (lock icon)
+3. Enter your API key: `devto-challenge-2026`
+4. Click **"Authorize"** and then **"Close"**
+5. All subsequent requests will include the API key automatically
+
 ## API Endpoints
 
 ### Health & Status

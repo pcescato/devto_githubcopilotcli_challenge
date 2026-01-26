@@ -9,9 +9,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import List, AsyncGenerator
 
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import APIKeyHeader
 from sqlalchemy import text, select
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.exc import SQLAlchemyError
@@ -23,6 +24,7 @@ from app.services.nlp_service import NLPService
 from app.services.content_service import ContentService
 from app.services.theme_service import ThemeService
 from app.db.tables import article_metrics, article_content, article_code_blocks, article_links
+from app.api.dependencies import verify_api_key
 from app.api.models import (
     HealthResponse,
     QualityScoreResponse,
@@ -133,6 +135,46 @@ app = FastAPI(
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
+
+# Add security scheme to OpenAPI for Swagger UI
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    
+    from fastapi.openapi.utils import get_openapi
+    
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    
+    # Add security scheme
+    openapi_schema["components"]["securitySchemes"] = {
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-API-Key",
+            "description": "API Key authentication. Use 'devto-challenge-2026' for demo."
+        }
+    }
+    
+    # Add security requirement to protected endpoints
+    for path, path_item in openapi_schema["paths"].items():
+        # Skip public endpoints
+        if path in ["/", "/api/health", "/api/test"]:
+            continue
+        
+        # Add security to all methods in this path
+        for method in path_item:
+            if method in ["get", "post", "put", "delete", "patch"]:
+                path_item[method]["security"] = [{"ApiKeyAuth": []}]
+    
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
 
 
 # ============================================================================
@@ -265,7 +307,8 @@ async def health_check(engine: AsyncEngine = Depends(get_engine)):
 @app.get(
     "/api/analytics/quality",
     response_model=List[QualityScoreResponse],
-    tags=["Analytics"]
+    tags=["Analytics"],
+    dependencies=[Depends(verify_api_key)]
 )
 async def get_quality_scores(
     limit: int = 10,
@@ -276,6 +319,8 @@ async def get_quality_scores(
     
     Quality score formula: (completion × 0.7) + (min(engagement, 20) × 1.5)
     Based on 90-day performance metrics.
+    
+    **Requires authentication:** Include X-API-Key header
     """
     try:
         scores = await analytics.get_quality_scores(limit=limit)
@@ -298,7 +343,8 @@ async def get_quality_scores(
 @app.get(
     "/api/analytics/read-time",
     response_model=List[ReadTimeResponse],
-    tags=["Analytics"]
+    tags=["Analytics"],
+    dependencies=[Depends(verify_api_key)]
 )
 async def get_read_time_analysis(
     limit: int = 10,
@@ -309,6 +355,8 @@ async def get_read_time_analysis(
     
     Analyzes completion rates and total reading hours.
     Based on 90-day data from daily_analytics.
+    
+    **Requires authentication:** Include X-API-Key header
     """
     try:
         analysis = await analytics.get_read_time_analysis(limit=limit)
@@ -320,7 +368,8 @@ async def get_read_time_analysis(
 @app.get(
     "/api/analytics/overview",
     response_model=OverviewResponse,
-    tags=["Analytics"]
+    tags=["Analytics"],
+    dependencies=[Depends(verify_api_key)]
 )
 async def get_overview(
     days: int = 7,
@@ -342,7 +391,8 @@ async def get_overview(
 @app.get(
     "/api/analytics/reactions",
     response_model=List[ReactionBreakdownResponse],
-    tags=["Analytics"]
+    tags=["Analytics"],
+    dependencies=[Depends(verify_api_key)]
 )
 async def get_reaction_breakdown(
     limit: int = 10,
@@ -368,7 +418,8 @@ async def get_reaction_breakdown(
 @app.get(
     "/api/dna",
     response_model=DNAReportResponse,
-    tags=["Author DNA"]
+    tags=["Author DNA"],
+    dependencies=[Depends(verify_api_key)]
 )
 async def get_dna_report(
     theme_service: ThemeService = Depends(get_theme_service)
@@ -396,7 +447,8 @@ async def get_dna_report(
 @app.post(
     "/api/dna/classify/{article_id}",
     response_model=ClassificationResponse,
-    tags=["Author DNA"]
+    tags=["Author DNA"],
+    dependencies=[Depends(verify_api_key)]
 )
 async def classify_article(
     article_id: int,
@@ -424,7 +476,8 @@ async def classify_article(
 @app.get(
     "/api/nlp/sentiment",
     response_model=SentimentStatsResponse,
-    tags=["NLP"]
+    tags=["NLP"],
+    dependencies=[Depends(verify_api_key)]
 )
 async def get_sentiment_stats(
     nlp_service: NLPService = Depends(get_nlp_service)
@@ -455,7 +508,8 @@ async def get_sentiment_stats(
 @app.get(
     "/api/nlp/questions",
     response_model=List[QuestionResponse],
-    tags=["NLP"]
+    tags=["NLP"],
+    dependencies=[Depends(verify_api_key)]
 )
 async def get_unanswered_questions(
     limit: int = 10,
@@ -481,7 +535,8 @@ async def get_unanswered_questions(
 @app.get(
     "/api/articles",
     response_model=List[ArticleResponse],
-    tags=["Articles"]
+    tags=["Articles"],
+    dependencies=[Depends(verify_api_key)]
 )
 async def get_articles(
     limit: int = 20,
@@ -539,7 +594,8 @@ async def get_articles(
 @app.get(
     "/api/articles/{article_id}/content",
     response_model=ArticleContentResponse,
-    tags=["Articles"]
+    tags=["Articles"],
+    dependencies=[Depends(verify_api_key)]
 )
 async def get_article_content(
     article_id: int,
@@ -640,7 +696,8 @@ async def sync_background(mode: str, engine: AsyncEngine):
 @app.post(
     "/api/sync",
     response_model=SyncResponse,
-    tags=["Sync"]
+    tags=["Sync"],
+    dependencies=[Depends(verify_api_key)]
 )
 async def trigger_sync(
     request: SyncRequest,
