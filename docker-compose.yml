@@ -122,34 +122,46 @@ services:
     networks:
       - devto_network
 
-  # FastAPI Application (planned - uncomment when ready)
-  # fastapi:
-  #   build:
-  #     context: ./app
-  #     dockerfile: Dockerfile
-  #   container_name: devto_fastapi
-  #   restart: unless-stopped
-  #   environment:
-  #     POSTGRES_HOST: postgres
-  #     POSTGRES_PORT: 5432
-  #     POSTGRES_USER: ${POSTGRES_USER:-devto}
-  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devto_secure_password}
-  #     POSTGRES_DB: ${POSTGRES_DB:-devto_analytics}
-  #     VALKEY_HOST: valkey
-  #     VALKEY_PORT: 6379
-  #     VALKEY_PASSWORD: ${VALKEY_PASSWORD:-valkey_secure_password}
-  #     DEVTO_API_KEY: ${DEVTO_API_KEY}
-  #   ports:
-  #     - "${FASTAPI_PORT:-8000}:8000"
-  #   volumes:
-  #     - ./app:/app
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     valkey:
-  #       condition: service_healthy
-  #   networks:
-  #     - devto_network
+  # FastAPI Application - Analytics REST API
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: devto_fastapi
+    restart: unless-stopped
+    environment:
+      # PostgreSQL connection
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-devto}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devto_secure_password}
+      POSTGRES_DB: ${POSTGRES_DB:-devto_analytics}
+      
+      # Valkey connection
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:-valkey_secure_password}
+      
+      # DEV.to API
+      DEVTO_API_KEY: ${DEVTO_API_KEY}
+      
+      # API Authentication
+      API_KEY: ${API_KEY:-devto-challenge-2026}
+    ports:
+      - "${FASTAPI_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - devto_network
 
 networks:
   devto_network:
