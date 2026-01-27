@@ -6,11 +6,14 @@
     # Uncomment for production with real domains
     # email admin@devto-analytics.com
     
-    # Local development - disable automatic HTTPS
+    # Local development - disable automatic HTTPS and use HTTP port
     auto_https off
     
-    # Admin API
-    admin off
+    # Bind to HTTP port 80
+    http_port 80
+    
+    # Admin API (needed for reloads)
+    admin 0.0.0.0:2019
     
     # Logging
     log {
@@ -20,10 +23,10 @@
 }
 
 # FastAPI Application - Main analytics API
-analytics.local {
+http://analytics.local {
     reverse_proxy localhost:8000 {
-        # Health check
-        health_uri /health
+        # Health check (note: FastAPI health is at /api/health)
+        health_uri /api/health
         health_interval 10s
         health_timeout 5s
         
@@ -79,7 +82,7 @@ analytics.local {
 }
 
 # DbGate - Database management interface
-db.local {
+http://db.local {
     reverse_proxy localhost:3000 {
         # Health check
         health_uri /
@@ -115,7 +118,7 @@ db.local {
 }
 
 # Apache Superset - Business intelligence dashboards
-dashboard.local {
+http://dashboard.local {
     reverse_proxy localhost:8088 {
         # Health check
         health_uri /health
@@ -161,7 +164,7 @@ dashboard.local {
 }
 
 # Root domain - Documentation or landing page
-devto-analytics.local {
+http://devto-analytics.local {
     root * /var/www/devto-analytics
     file_server
     
