@@ -21,13 +21,15 @@ devto_dbgate     Up             0.0.0.0:3000->3000/tcp
 
 ## 📍 Access Points
 
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| **FastAPI API** | http://localhost:8000/docs | API Key: `devto-challenge-2026` |
-| **Health Check** | http://localhost:8000/api/health | None |
-| **Apache Superset** | http://localhost:8088 | admin / admin |
-| **DbGate** | http://localhost:3000 | Auto-connected |
-| **PostgreSQL** | localhost:5432 | devto / devto_secure_password |
+| Service | Direct URL | Caddy Domain | Credentials |
+|---------|-----------|--------------|-------------|
+| **FastAPI API** | http://localhost:8000/docs | http://analytics.local | API Key: `devto-challenge-2026` |
+| **Health Check** | http://localhost:8000/api/health | http://analytics.local/api/health | None |
+| **Apache Superset** | http://localhost:8088 | http://dashboard.local | admin / admin |
+| **DbGate** | http://localhost:3000 | http://db.local | Auto-connected |
+| **PostgreSQL** | localhost:5432 | - | devto / devto_secure_password |
+
+**Note**: Caddy reverse proxy provides friendly domain names. Both direct and domain URLs work.
 
 ## 🔑 API Examples
 
