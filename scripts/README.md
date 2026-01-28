@@ -48,18 +48,34 @@ python3 scripts/sync_worker.py
 
 ### Cron Configuration
 
+⚠️ **CRITICAL:** Cron runs without venv activated! Use `./venv/bin/python3`, NOT `python3`
+
 ```bash
 # Edit crontab
 crontab -e
 
-# Hourly sync at minute 5
-5 * * * * cd /path/to/devto_githubcopilotcli_challenge && python3 scripts/sync_worker.py >> logs/sync_worker.log 2>&1
+# Hourly sync at minute 5 (use venv's Python!)
+5 * * * * cd /path/to/devto_githubcopilotcli_challenge && ./venv/bin/python3 scripts/sync_worker.py >> logs/sync_worker.log 2>&1
 
 # Or every 6 hours (balanced - recommended)
-5 0,6,12,18 * * * cd /path/to/devto_githubcopilotcli_challenge && python3 scripts/sync_worker.py >> logs/sync_worker.log 2>&1
+5 0,6,12,18 * * * cd /path/to/devto_githubcopilotcli_challenge && ./venv/bin/python3 scripts/sync_worker.py >> logs/sync_worker.log 2>&1
 
 # Or daily at 2 AM (low frequency)
-5 2 * * * cd /path/to/devto_githubcopilotcli_challenge && python3 scripts/sync_worker.py >> logs/sync_worker.log 2>&1
+5 2 * * * cd /path/to/devto_githubcopilotcli_challenge && ./venv/bin/python3 scripts/sync_worker.py >> logs/sync_worker.log 2>&1
+```
+
+**Why `./venv/bin/python3`?**
+- Cron runs in minimal environment (no venv active)
+- System Python (`/usr/bin/python3`) doesn't have required packages
+- Using venv's Python ensures all dependencies are available
+
+**Test before adding to cron:**
+```bash
+# Test with venv Python
+./venv/bin/python3 scripts/sync_worker.py
+
+# Simulate cron environment
+env -i HOME=$HOME SHELL=/bin/sh /bin/sh -c "cd $(pwd) && ./venv/bin/python3 scripts/sync_worker.py"
 ```
 
 ### Environment Variables
