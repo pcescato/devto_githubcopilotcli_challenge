@@ -1,0 +1,86 @@
+# Cron Configuration Examples for DEV.to Analytics Sync Worker
+
+# These are example crontab entries. Choose one based on your update frequency needs.
+# To add to your crontab: crontab -e
+
+# ═══════════════════════════════════════════════════════════════════════
+# HOURLY SYNC (Active Blog with Frequent Updates)
+# ═══════════════════════════════════════════════════════════════════════
+# Runs at minute 5 of every hour
+# Use case: Real-time dashboard, active content creators
+5 * * * * cd /root/projects/devto_githubcopilotcli_challenge && /usr/bin/python3 scripts/sync_worker.py >> logs/sync_worker.log 2>&1
+
+# ═══════════════════════════════════════════════════════════════════════
+# EVERY 6 HOURS (RECOMMENDED - Balanced)
+# ═══════════════════════════════════════════════════════════════════════
+# Runs at 00:05, 06:05, 12:05, 18:05 daily
+# Use case: Most blogs, good balance between freshness and API usage
+5 0,6,12,18 * * * cd /root/projects/devto_githubcopilotcli_challenge && /usr/bin/python3 scripts/sync_worker.py >> logs/sync_worker.log 2>&1
+
+# ═══════════════════════════════════════════════════════════════════════
+# DAILY SYNC (Low Frequency)
+# ═══════════════════════════════════════════════════════════════════════
+# Runs once daily at 2:05 AM
+# Use case: Infrequent updates, weekly/monthly reports
+5 2 * * * cd /root/projects/devto_githubcopilotcli_challenge && /usr/bin/python3 scripts/sync_worker.py >> logs/sync_worker.log 2>&1
+
+# ═══════════════════════════════════════════════════════════════════════
+# EVERY 30 MINUTES (High Frequency)
+# ═══════════════════════════════════════════════════════════════════════
+# Runs at :05 and :35 of every hour
+# Use case: Real-time analytics, monitoring campaigns
+5,35 * * * * cd /root/projects/devto_githubcopilotcli_challenge && /usr/bin/python3 scripts/sync_worker.py >> logs/sync_worker.log 2>&1
+
+# ═══════════════════════════════════════════════════════════════════════
+# TWICE DAILY (Morning and Evening)
+# ═══════════════════════════════════════════════════════════════════════
+# Runs at 8:05 AM and 8:05 PM
+# Use case: Check analytics before/after work
+5 8,20 * * * cd /root/projects/devto_githubcopilotcli_challenge && /usr/bin/python3 scripts/sync_worker.py >> logs/sync_worker.log 2>&1
+
+# ═══════════════════════════════════════════════════════════════════════
+# WEEKDAYS ONLY (Business Hours)
+# ═══════════════════════════════════════════════════════════════════════
+# Runs every 6 hours, Monday-Friday only
+# Use case: Professional content, skip weekends
+5 0,6,12,18 * * 1-5 cd /root/projects/devto_githubcopilotcli_challenge && /usr/bin/python3 scripts/sync_worker.py >> logs/sync_worker.log 2>&1
+
+# ═══════════════════════════════════════════════════════════════════════
+# WEEKLY SUMMARY (Sunday Night)
+# ═══════════════════════════════════════════════════════════════════════
+# Runs once weekly on Sunday at 11:05 PM
+# Use case: Weekly reports, archive data
+5 23 * * 0 cd /root/projects/devto_githubcopilotcli_challenge && /usr/bin/python3 scripts/sync_worker.py >> logs/sync_worker.log 2>&1
+
+# ═══════════════════════════════════════════════════════════════════════
+# NOTES
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Cron Format: minute hour day month weekday command
+#   minute:  0-59
+#   hour:    0-23
+#   day:     1-31
+#   month:   1-12
+#   weekday: 0-7 (0 and 7 = Sunday)
+#
+# Special Characters:
+#   *  = any value
+#   ,  = value list (e.g., 1,15 = 1st and 15th)
+#   -  = range (e.g., 1-5 = Monday to Friday)
+#   /  = step (e.g., */2 = every 2 units)
+#
+# Important:
+#   - Always use absolute paths (/usr/bin/python3, not python3)
+#   - Change directory (cd) before running script
+#   - Redirect stdout (>>) and stderr (2>&1) to log file
+#   - Create logs directory first: mkdir -p logs
+#
+# Verify Crontab:
+#   crontab -l           # List current crontab
+#   crontab -e           # Edit crontab
+#   systemctl status cron  # Check cron service (Debian/Ubuntu)
+#
+# Monitor Logs:
+#   tail -f logs/sync_worker.log                    # Watch live
+#   grep "ERROR" logs/sync_worker.log               # Find errors
+#   grep "Pipeline completed" logs/sync_worker.log  # Success count
