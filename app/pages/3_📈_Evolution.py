@@ -4,6 +4,13 @@ Evolution Page - Engagement Trends and Historical Analysis
 Visualizes how engagement metrics evolve over time using sismograph data.
 """
 
+import sys
+from pathlib import Path
+
+# Add project root to Python path
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
+
 import streamlit as st
 import asyncio
 import pandas as pd

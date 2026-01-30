@@ -4,6 +4,13 @@ Sentiment Page - Comment Sentiment Analysis and Spam Detection
 Visualizes comment sentiment distribution and identifies spam patterns.
 """
 
+import sys
+from pathlib import Path
+
+# Add project root to Python path
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
+
 import streamlit as st
 import asyncio
 import pandas as pd
