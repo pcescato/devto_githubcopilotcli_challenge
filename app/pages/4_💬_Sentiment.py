@@ -99,17 +99,34 @@ def load_sentiment_stats() -> Dict[str, Any]:
 def load_recent_comments(limit: int = 50) -> pd.DataFrame:
     """Load recent comments with sentiment"""
     async def _load():
-        from sqlalchemy import select
+        from sqlalchemy import select, func
         from app.db.tables import comments, comment_insights, article_metrics
         
         engine = get_cached_engine()
         
         try:
             async with engine.connect() as conn:
+                # Subquery to get latest article title per article_id
+                latest_article_subq = (
+                    select(
+                        article_metrics.c.article_id,
+                        article_metrics.c.title,
+                        func.row_number().over(
+                            partition_by=article_metrics.c.article_id,
+                            order_by=article_metrics.c.collected_at.desc()
+                        ).label('rn')
+                    )
+                    .subquery()
+                )
+                
                 query = select(
                     comments.c.comment_id,
                     comments.c.article_id,
-                    article_metrics.c.title.label('article_title'),
+                    # Use article_title from comments table first, fallback to article_metrics
+                    func.coalesce(
+                        comments.c.article_title,
+                        latest_article_subq.c.title
+                    ).label('article_title'),
                     comments.c.author_username,
                     comments.c.body_text,
                     comments.c.created_at,
@@ -123,8 +140,9 @@ def load_recent_comments(limit: int = 50) -> pd.DataFrame:
                         comments.c.comment_id == comment_insights.c.comment_id
                     )
                     .outerjoin(
-                        article_metrics,
-                        comments.c.article_id == article_metrics.c.article_id
+                        latest_article_subq,
+                        (comments.c.article_id == latest_article_subq.c.article_id) &
+                        (latest_article_subq.c.rn == 1)
                     )
                 ).order_by(comments.c.created_at.desc()).limit(limit)
                 
@@ -178,17 +196,34 @@ def load_recent_comments(limit: int = 50) -> pd.DataFrame:
 def load_spam_candidates() -> pd.DataFrame:
     """Load potential spam comments"""
     async def _load():
-        from sqlalchemy import select
+        from sqlalchemy import select, func
         from app.db.tables import comments, comment_insights, article_metrics
         
         engine = get_cached_engine()
         
         try:
             async with engine.connect() as conn:
+                # Subquery to get latest article title per article_id
+                latest_article_subq = (
+                    select(
+                        article_metrics.c.article_id,
+                        article_metrics.c.title,
+                        func.row_number().over(
+                            partition_by=article_metrics.c.article_id,
+                            order_by=article_metrics.c.collected_at.desc()
+                        ).label('rn')
+                    )
+                    .subquery()
+                )
+                
                 query = select(
                     comments.c.comment_id,
                     comments.c.article_id,
-                    article_metrics.c.title.label('article_title'),
+                    # Use article_title from comments table first, fallback to article_metrics
+                    func.coalesce(
+                        comments.c.article_title,
+                        latest_article_subq.c.title
+                    ).label('article_title'),
                     comments.c.author_username,
                     comments.c.body_text,
                     comment_insights.c.is_spam,
@@ -200,8 +235,9 @@ def load_spam_candidates() -> pd.DataFrame:
                         comments.c.comment_id == comment_insights.c.comment_id
                     )
                     .outerjoin(
-                        article_metrics,
-                        comments.c.article_id == article_metrics.c.article_id
+                        latest_article_subq,
+                        (comments.c.article_id == latest_article_subq.c.article_id) &
+                        (latest_article_subq.c.rn == 1)
                     )
                 ).where(
                     comment_insights.c.is_spam == True
