@@ -93,7 +93,7 @@ def load_recent_comments(limit: int = 50) -> pd.DataFrame:
     """Load recent comments with sentiment"""
     async def _load():
         from sqlalchemy import select
-        from app.db.tables import comments, comment_sentiment, article_metrics
+        from app.db.tables import comments, comment_insights, article_metrics
         
         engine = get_cached_engine()
         
@@ -106,14 +106,14 @@ def load_recent_comments(limit: int = 50) -> pd.DataFrame:
                     comments.c.author_username,
                     comments.c.text,
                     comments.c.created_at,
-                    comment_sentiment.c.polarity,
-                    comment_sentiment.c.subjectivity,
-                    comment_sentiment.c.spam_score
+                    comment_insights.c.polarity,
+                    comment_insights.c.subjectivity,
+                    comment_insights.c.spam_score
                 ).select_from(
                     comments
                     .outerjoin(
-                        comment_sentiment,
-                        comments.c.comment_id == comment_sentiment.c.comment_id
+                        comment_insights,
+                        comments.c.comment_id == comment_insights.c.comment_id
                     )
                     .outerjoin(
                         article_metrics,
@@ -160,7 +160,7 @@ def load_spam_candidates(threshold: float = 0.5) -> pd.DataFrame:
     """Load potential spam comments"""
     async def _load():
         from sqlalchemy import select
-        from app.db.tables import comments, comment_sentiment, article_metrics
+        from app.db.tables import comments, comment_insights, article_metrics
         
         engine = get_cached_engine()
         
@@ -172,20 +172,20 @@ def load_spam_candidates(threshold: float = 0.5) -> pd.DataFrame:
                     article_metrics.c.title.label('article_title'),
                     comments.c.author_username,
                     comments.c.text,
-                    comment_sentiment.c.spam_score
+                    comment_insights.c.spam_score
                 ).select_from(
                     comments
                     .join(
-                        comment_sentiment,
-                        comments.c.comment_id == comment_sentiment.c.comment_id
+                        comment_insights,
+                        comments.c.comment_id == comment_insights.c.comment_id
                     )
                     .outerjoin(
                         article_metrics,
                         comments.c.article_id == article_metrics.c.article_id
                     )
                 ).where(
-                    comment_sentiment.c.spam_score >= threshold
-                ).order_by(comment_sentiment.c.spam_score.desc())
+                    comment_insights.c.spam_score >= threshold
+                ).order_by(comment_insights.c.spam_score.desc())
                 
                 result = await conn.execute(query)
                 rows = result.mappings().all()

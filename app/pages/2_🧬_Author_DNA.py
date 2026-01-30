@@ -79,6 +79,11 @@ def load_dna_report() -> Dict[str, Any]:
         
         try:
             data = await service.generate_dna_report()
+            # Ensure data has expected structure
+            if not isinstance(data, dict):
+                return {'total': 0, 'moods': []}
+            if 'total' not in data:
+                data['total'] = len(data.get('moods', []))
             return data
         except Exception as e:
             st.error(f"Error loading DNA report: {str(e)}")
@@ -98,7 +103,17 @@ def load_article_classifications() -> pd.DataFrame:
         
         try:
             async with engine.connect() as conn:
-                # Get latest article snapshot with theme
+                # Subquery for latest snapshot per article
+                latest_subq = (
+                    select(
+                        article_metrics.c.article_id,
+                        func.max(article_metrics.c.collected_at).label('max_collected')
+                    )
+                    .group_by(article_metrics.c.article_id)
+                    .subquery()
+                )
+                
+                # Main query
                 query = select(
                     article_metrics.c.article_id,
                     article_metrics.c.title,
@@ -110,20 +125,17 @@ def load_article_classifications() -> pd.DataFrame:
                 ).select_from(
                     article_metrics
                     .join(
+                        latest_subq,
+                        (article_metrics.c.article_id == latest_subq.c.article_id) &
+                        (article_metrics.c.collected_at == latest_subq.c.max_collected)
+                    )
+                    .join(
                         article_theme_mapping,
                         article_metrics.c.article_id == article_theme_mapping.c.article_id
                     )
                     .join(
                         author_themes,
                         article_theme_mapping.c.theme_id == author_themes.c.id
-                    )
-                ).where(
-                    article_metrics.c.collected_at.in_(
-                        select(func.max(article_metrics.c.collected_at))
-                        .where(
-                            article_metrics.c.article_id == article_theme_mapping.c.article_id
-                        )
-                        .scalar_subquery()
                     )
                 ).order_by(article_metrics.c.views.desc())
                 
@@ -136,11 +148,13 @@ def load_article_classifications() -> pd.DataFrame:
                 df = pd.DataFrame([dict(row) for row in rows])
                 
                 # Calculate engagement
-                df['engagement_rate'] = (df['reactions'] / df['views'] * 100).round(2)
+                df['engagement_rate'] = (df['reactions'] / df['views'].replace(0, 1) * 100).round(2)
                 
                 return df
         except Exception as e:
             st.error(f"Error loading classifications: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
             return pd.DataFrame()
     
     return run_async(_load())

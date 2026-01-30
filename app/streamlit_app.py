@@ -145,9 +145,10 @@ def check_database_connection() -> tuple[bool, str]:
     """Check if database connection is working"""
     async def _check():
         try:
+            from sqlalchemy import text
             engine = get_cached_engine()
             async with engine.connect() as conn:
-                result = await conn.execute("SELECT 1")
+                result = await conn.execute(text("SELECT 1"))
                 return True, "Connected"
         except Exception as e:
             return False, str(e)

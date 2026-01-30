@@ -83,13 +83,20 @@ def load_quality_scores(limit: int = 50) -> pd.DataFrame:
             if not data or len(data) == 0:
                 return pd.DataFrame()
             
-            # Validate data structure
-            required_fields = ['article_id', 'title', 'quality_score', 'completion_percent', 'engagement_percent', 'views_90d']
-            if not all(field in data[0] for field in required_fields):
-                st.error(f"Missing required fields. Available: {list(data[0].keys())}")
-                return pd.DataFrame()
-            
+            # Map actual fields to expected fields
             df = pd.DataFrame(data)
+            
+            # Handle different field names
+            if 'views_90d' in df.columns:
+                df['views'] = df['views_90d']
+            elif 'total_views' in df.columns:
+                df['views'] = df['total_views']
+            
+            # Ensure required fields exist
+            required_fields = ['article_id', 'title', 'quality_score']
+            if not all(field in df.columns for field in required_fields):
+                st.error(f"Missing required fields. Available: {list(df.columns)}")
+                return pd.DataFrame()
             
             # Truncate long titles
             df['title_short'] = df['title'].apply(lambda x: x[:50] + '...' if len(x) > 50 else x)
