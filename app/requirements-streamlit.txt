@@ -1,0 +1,7 @@
+# Streamlit Dashboard Requirements
+# Additional dependencies for the web dashboard
+
+streamlit>=1.28.0
+plotly>=5.17.0
+pandas>=2.1.0
+nest-asyncio>=1.5.8
