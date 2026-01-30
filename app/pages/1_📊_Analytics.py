@@ -83,14 +83,7 @@ def load_quality_scores(limit: int = 50) -> pd.DataFrame:
             if not data or len(data) == 0:
                 return pd.DataFrame()
             
-            # Map actual fields to expected fields
             df = pd.DataFrame(data)
-            
-            # Handle different field names
-            if 'views_90d' in df.columns:
-                df['views'] = df['views_90d']
-            elif 'total_views' in df.columns:
-                df['views'] = df['total_views']
             
             # Ensure required fields exist
             required_fields = ['article_id', 'title', 'quality_score']
@@ -225,7 +218,7 @@ def main():
         )
     
     with col3:
-        total_views = quality_df['views_90d'].sum()
+        total_views = quality_df['total_views'].sum()
         st.metric(
             "Total Views (90d)",
             f"{total_views:,}",
@@ -327,7 +320,7 @@ def main():
             readtime_df,
             x='reading_time_minutes',
             y='completion_percent',
-            size='views_90d',
+            size='total_views',
             color='completion_percent',
             hover_data=['title'],
             color_continuous_scale='Viridis',
