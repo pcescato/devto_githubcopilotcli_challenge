@@ -113,9 +113,9 @@ def load_recent_comments(limit: int = 50) -> pd.DataFrame:
                     comments.c.author_username,
                     comments.c.body_text,
                     comments.c.created_at,
-                    comment_insights.c.polarity,
-                    comment_insights.c.subjectivity,
-                    comment_insights.c.spam_score
+                    comment_insights.c.sentiment_score,
+                    comment_insights.c.mood,
+                    comment_insights.c.is_spam
                 ).select_from(
                     comments
                     .outerjoin(
@@ -136,18 +136,30 @@ def load_recent_comments(limit: int = 50) -> pd.DataFrame:
                 
                 df = pd.DataFrame([dict(row) for row in rows])
                 
-                # Classify sentiment
-                def classify_sentiment(polarity):
-                    if pd.isna(polarity):
+                # Use mood if available, otherwise classify from sentiment_score
+                def get_sentiment(row):
+                    if pd.notna(row.get('mood')):
+                        # mood is already classified, just clean it up
+                        mood_str = str(row['mood']).lower()
+                        if 'positif' in mood_str or 'positive' in mood_str:
+                            return 'Positive'
+                        elif 'négatif' in mood_str or 'negative' in mood_str:
+                            return 'Negative'
+                        elif 'neutre' in mood_str or 'neutral' in mood_str:
+                            return 'Neutral'
+                    
+                    # Fallback to sentiment_score classification
+                    score = row.get('sentiment_score')
+                    if pd.isna(score):
                         return 'Unknown'
-                    elif polarity >= 0.3:
+                    elif score >= 0.3:
                         return 'Positive'
-                    elif polarity <= -0.2:
+                    elif score <= -0.2:
                         return 'Negative'
                     else:
                         return 'Neutral'
                 
-                df['sentiment'] = df['polarity'].apply(classify_sentiment)
+                df['sentiment'] = df.apply(get_sentiment, axis=1)
                 
                 # Truncate text
                 df['text_preview'] = df['body_text'].apply(
@@ -163,7 +175,7 @@ def load_recent_comments(limit: int = 50) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
-def load_spam_candidates(threshold: float = 0.5) -> pd.DataFrame:
+def load_spam_candidates() -> pd.DataFrame:
     """Load potential spam comments"""
     async def _load():
         from sqlalchemy import select
@@ -179,7 +191,8 @@ def load_spam_candidates(threshold: float = 0.5) -> pd.DataFrame:
                     article_metrics.c.title.label('article_title'),
                     comments.c.author_username,
                     comments.c.body_text,
-                    comment_insights.c.spam_score
+                    comment_insights.c.is_spam,
+                    comment_insights.c.sentiment_score
                 ).select_from(
                     comments
                     .join(
@@ -191,8 +204,8 @@ def load_spam_candidates(threshold: float = 0.5) -> pd.DataFrame:
                         comments.c.article_id == article_metrics.c.article_id
                     )
                 ).where(
-                    comment_insights.c.spam_score >= threshold
-                ).order_by(comment_insights.c.spam_score.desc())
+                    comment_insights.c.is_spam == True
+                ).order_by(comments.c.created_at.desc())
                 
                 result = await conn.execute(query)
                 rows = result.mappings().all()
@@ -201,6 +214,10 @@ def load_spam_candidates(threshold: float = 0.5) -> pd.DataFrame:
                     return pd.DataFrame()
                 
                 df = pd.DataFrame([dict(row) for row in rows])
+                
+                df['text_preview'] = df['body_text'].apply(
+                    lambda x: x[:80] + '...' if isinstance(x, str) and len(x) > 80 else x
+                )
                 
                 df['text_preview'] = df['body_text'].apply(
                     lambda x: x[:80] + '...' if isinstance(x, str) and len(x) > 80 else x
@@ -230,15 +247,6 @@ def main():
             step=10
         )
         
-        spam_threshold = st.slider(
-            "Spam detection threshold",
-            min_value=0.0,
-            max_value=1.0,
-            value=0.5,
-            step=0.1,
-            help="Lower = more sensitive"
-        )
-        
         if st.button("🔄 Refresh Data"):
             st.cache_data.clear()
             st.success("Data refreshed!")
@@ -250,9 +258,9 @@ def main():
         st.info("""
         **Sentiment Analysis** uses:
         
-        - 🎭 Polarity: Positive/Negative tone
-        - 📊 Subjectivity: Opinion vs Fact
-        - 🚫 Spam Score: Promotional content
+        - 🎭 VADER Sentiment Score: -1.0 to +1.0
+        - 😊 Mood Classification: Positive/Neutral/Negative
+        - 🚫 Spam Detection: Keyword-based filtering
         
         **Thresholds:**
         - Positive: ≥ 0.3
@@ -264,7 +272,7 @@ def main():
     with st.spinner("Analyzing sentiment..."):
         sentiment_stats = load_sentiment_stats()
         comments_df = load_recent_comments(limit=comment_limit)
-        spam_df = load_spam_candidates(threshold=spam_threshold)
+        spam_df = load_spam_candidates()
     
     # Check for empty data
     if sentiment_stats['total'] == 0:
@@ -312,7 +320,7 @@ def main():
         st.metric(
             "Potential Spam",
             spam_count,
-            help=f"Comments with spam score ≥ {spam_threshold}"
+            help="Comments detected as spam"
         )
     
     st.divider()
