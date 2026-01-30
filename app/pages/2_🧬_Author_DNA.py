@@ -86,15 +86,15 @@ def load_dna_report() -> Dict[str, Any]:
         
         try:
             data = await service.generate_dna_report()
-            # Ensure data has expected structure
+            # Service returns {'themes': [...]}
             if not isinstance(data, dict):
-                return {'total': 0, 'moods': []}
-            if 'total' not in data:
-                data['total'] = len(data.get('moods', []))
+                return {'themes': []}
+            if 'themes' not in data:
+                return {'themes': []}
             return data
         except Exception as e:
             st.error(f"Error loading DNA report: {str(e)}")
-            return {'total': 0, 'moods': []}
+            return {'themes': []}
     
     return run_async(_load())
 
@@ -204,7 +204,7 @@ def main():
         classifications_df = load_article_classifications()
     
     # Check for empty data
-    if dna_data['total'] == 0:
+    if not dna_data.get('themes') or len(dna_data['themes']) == 0:
         st.warning("⚠️ No theme data available. Run theme classification first:")
         st.code("python3 -m app.services.theme_service --full", language="bash")
         return
@@ -214,37 +214,38 @@ def main():
     
     col1, col2, col3, col4 = st.columns(4)
     
-    moods = dna_data.get('moods', [])
+    themes = dna_data.get('themes', [])
+    total_articles = sum(t.get('article_count', 0) for t in themes)
     
     with col1:
         st.metric(
             "Total Articles",
-            dna_data['total'],
+            total_articles,
             help="Total number of classified articles"
         )
     
     with col2:
         st.metric(
             "Identified Themes",
-            len(moods),
+            len(themes),
             help="Number of distinct themes"
         )
     
     with col3:
-        if moods:
-            dominant_theme = max(moods, key=lambda x: x['count'])
+        if themes:
+            dominant_theme = max(themes, key=lambda x: x['article_count'])
             st.metric(
                 "Dominant Theme",
-                dominant_theme['name'],
+                dominant_theme['theme_name'],
                 help="Theme with most articles"
             )
     
     with col4:
-        if moods:
-            total_views = sum(m.get('total_views', 0) for m in moods)
+        if themes:
+            total_views = sum(m.get('total_views', 0) for m in themes)
             st.metric(
                 "Total Views",
-                f"{total_views:,}",
+                f"{int(total_views):,}",
                 help="Combined views across all themes"
             )
     
@@ -259,15 +260,15 @@ def main():
         st.subheader("Article Count by Theme")
         
         # Create DataFrame for plotting
-        themes_df = pd.DataFrame(moods)
+        themes_df = pd.DataFrame(themes)
         
         if not themes_df.empty:
             # Pie chart
             fig = px.pie(
                 themes_df,
-                values='count',
-                names='name',
-                color='name',
+                values='article_count',
+                names='theme_name',
+                color='theme_name',
                 color_discrete_map={
                     'Expertise Tech': '#1f77b4',
                     'Human & Career': '#ff7f0e',
@@ -289,12 +290,12 @@ def main():
         # Theme summary table
         st.subheader("Theme Breakdown")
         
-        for mood in sorted(moods, key=lambda x: x['count'], reverse=True):
-            pct = (mood['count'] / dna_data['total'] * 100) if dna_data['total'] > 0 else 0
+        for theme in sorted(themes, key=lambda x: x['article_count'], reverse=True):
+            pct = (theme['article_count'] / total_articles * 100) if total_articles > 0 else 0
             st.markdown(f"""
-            **{mood['name']}**  
-            📝 {mood['count']} articles ({pct:.1f}%)  
-            👁️ {mood.get('total_views', 0):,} views
+            **{theme['theme_name']}**  
+            📝 {theme['article_count']} articles ({pct:.1f}%)  
+            👁️ {int(theme.get('total_views', 0)):,} views
             """)
             st.progress(pct / 100)
             st.markdown("---")
@@ -306,13 +307,14 @@ def main():
             # Create metrics DataFrame
             performance_data = []
             
-            for mood in moods:
+            for theme in themes:
+                avg_reactions = theme.get('total_reactions', 0) / theme['article_count'] if theme['article_count'] > 0 else 0
                 performance_data.append({
-                    'Theme': mood['name'],
-                    'Articles': mood['count'],
-                    'Avg Views': mood.get('avg_views', 0),
-                    'Avg Reactions': mood.get('avg_reactions', 0),
-                    'Avg Engagement (%)': mood.get('avg_engagement', 0)
+                    'Theme': theme['theme_name'],
+                    'Articles': theme['article_count'],
+                    'Avg Views': int(theme.get('avg_views', 0)),
+                    'Avg Reactions': int(avg_reactions),
+                    'Avg Engagement (%)': theme.get('engagement_pct', 0)
                 })
             
             perf_df = pd.DataFrame(performance_data)
