@@ -559,7 +559,18 @@ def main():
             # Use text_preview if body_text is None
             comment_text = comment.get('body_text') or comment.get('text_preview', '[No comment text]')
             
-            with st.expander(f"{sentiment_emoji} {comment['author_username']} on {comment['article_title'][:50]}...", expanded=False):
+            # Strip HTML tags for cleaner display
+            import re
+            if comment_text and comment_text != '[No comment text]':
+                # Remove HTML tags
+                comment_text = re.sub(r'<[^>]+>', '', comment_text)
+                # Decode HTML entities
+                import html
+                comment_text = html.unescape(comment_text)
+                # Clean up whitespace
+                comment_text = ' '.join(comment_text.split())
+            
+            with st.expander(f"{sentiment_emoji} {comment['author_username']} on {comment['article_title'][:50] if comment.get('article_title') else 'Unknown Article'}...", expanded=False):
                 col1, col2 = st.columns([3, 1])
                 
                 with col1:
