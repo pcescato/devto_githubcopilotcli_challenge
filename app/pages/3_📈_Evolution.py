@@ -26,19 +26,23 @@ st.set_page_config(
 )
 
 
-def run_async(coro):
-    """Helper to run async functions"""
-    # Use the existing event loop or create one that stays alive
+@st.cache_resource
+def get_cached_loop():
+    """Get or create a cached event loop (persistent across reruns)"""
     try:
         loop = asyncio.get_event_loop()
         if loop.is_closed():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            raise RuntimeError("Loop is closed")
+        return loop
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    
-    # Run the coroutine without closing the loop
+        return loop
+
+
+def run_async(coro):
+    """Helper to run async functions using cached event loop"""
+    loop = get_cached_loop()
     return loop.run_until_complete(coro)
 
 
@@ -47,6 +51,9 @@ def get_cached_engine():
     """Get cached database engine"""
     import os
     from sqlalchemy.ext.asyncio import create_async_engine
+    
+    # Ensure we have a loop before creating the engine
+    loop = get_cached_loop()
     
     # Get database URL from environment
     host = os.getenv('POSTGRES_HOST', 'localhost')
