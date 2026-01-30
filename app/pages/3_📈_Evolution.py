@@ -176,9 +176,9 @@ def load_global_trends(days: int = 90) -> pd.DataFrame:
                 
                 query = select(
                     daily_analytics.c.date,
-                    func.sum(daily_analytics.c.views).label('total_views'),
-                    func.sum(daily_analytics.c.reactions).label('total_reactions'),
-                    func.sum(daily_analytics.c.comments).label('total_comments')
+                    func.sum(daily_analytics.c.page_views).label('total_views'),
+                    func.sum(daily_analytics.c.reactions_total).label('total_reactions'),
+                    func.sum(daily_analytics.c.comments_total).label('total_comments')
                 ).where(
                     daily_analytics.c.date >= cutoff_date
                 ).group_by(
