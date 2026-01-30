@@ -368,29 +368,39 @@ def main():
             st.dataframe(sentiment_df, use_container_width=True, hide_index=True)
     
     with col2:
-        st.subheader("Average Polarity by Sentiment")
+        st.subheader("Sentiment Volume by Category")
         
         if moods:
-            # Bar chart
-            polarity_data = []
+            # Bar chart showing count by mood
+            mood_data = []
             for mood in moods:
-                polarity_data.append({
+                mood_data.append({
                     'Sentiment': mood['mood'].capitalize(),
-                    'Avg Polarity': mood.get('avg_polarity', 0)
+                    'Count': mood['count'],
+                    'Percentage': mood['percentage']
                 })
             
-            polarity_df = pd.DataFrame(polarity_data)
+            mood_df = pd.DataFrame(mood_data)
             
             fig = px.bar(
-                polarity_df,
+                mood_df,
                 x='Sentiment',
-                y='Avg Polarity',
-                color='Avg Polarity',
-                color_continuous_scale=['#dc3545', '#ffc107', '#28a745'],
-                labels={'Avg Polarity': 'Average Polarity Score'},
+                y='Count',
+                color='Sentiment',
+                color_discrete_map={
+                    'Positive': '#28a745',
+                    'Positif': '#28a745',
+                    'Neutral': '#ffc107',
+                    'Neutre': '#ffc107',
+                    'Negative': '#dc3545',
+                    'Négatif': '#dc3545'
+                },
+                text='Percentage',
+                labels={'Count': 'Number of Comments'},
                 height=400
             )
             
+            fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
             fig.update_layout(showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
             
@@ -430,23 +440,23 @@ def main():
             st.metric("Filtered Comments", len(filtered_comments))
         
         with col2:
-            avg_polarity = filtered_comments['polarity'].mean()
-            st.metric("Avg Polarity", f"{avg_polarity:.2f}" if not pd.isna(avg_polarity) else "N/A")
+            avg_sentiment = filtered_comments['sentiment_score'].mean()
+            st.metric("Avg Sentiment Score", f"{avg_sentiment:.2f}" if not pd.isna(avg_sentiment) else "N/A")
         
         with col3:
-            avg_subjectivity = filtered_comments['subjectivity'].mean()
-            st.metric("Avg Subjectivity", f"{avg_subjectivity:.2f}" if not pd.isna(avg_subjectivity) else "N/A")
+            sentiment_counts = filtered_comments['sentiment'].value_counts()
+            most_common = sentiment_counts.index[0] if not sentiment_counts.empty else "N/A"
+            st.metric("Most Common", most_common)
         
-        # Polarity vs Subjectivity scatter
-        st.subheader("📊 Polarity vs Subjectivity")
+        # Sentiment Score Distribution
+        st.subheader("📊 Sentiment Score Distribution")
         
-        valid_data = filtered_comments.dropna(subset=['polarity', 'subjectivity'])
+        valid_data = filtered_comments.dropna(subset=['sentiment_score'])
         
         if not valid_data.empty:
-            fig = px.scatter(
+            fig = px.histogram(
                 valid_data,
-                x='polarity',
-                y='subjectivity',
+                x='sentiment_score',
                 color='sentiment',
                 color_discrete_map={
                     'Positive': '#28a745',
@@ -454,14 +464,16 @@ def main():
                     'Negative': '#dc3545',
                     'Unknown': '#6c757d'
                 },
-                hover_data=['author_username', 'text_preview'],
-                labels={'polarity': 'Polarity', 'subjectivity': 'Subjectivity'},
-                height=500
+                nbins=20,
+                labels={'sentiment_score': 'VADER Sentiment Score (-1.0 to +1.0)'},
+                height=400
             )
             
-            # Add quadrant lines
-            fig.add_hline(y=0.5, line_dash="dash", line_color="gray", opacity=0.5)
-            fig.add_vline(x=0, line_dash="dash", line_color="gray", opacity=0.5)
+            # Add threshold lines
+            fig.add_vline(x=0.3, line_dash="dash", line_color="green", opacity=0.5, 
+                         annotation_text="Positive threshold")
+            fig.add_vline(x=-0.2, line_dash="dash", line_color="red", opacity=0.5,
+                         annotation_text="Negative threshold")
             
             st.plotly_chart(fig, use_container_width=True)
         
@@ -499,22 +511,20 @@ def main():
                 
                 with col1:
                     st.markdown(f"**Comment:**")
-                    st.write(comment['text'])
+                    st.write(comment['body_text'])
                     
                     st.caption(f"Posted: {comment['created_at']}")
                 
                 with col2:
                     st.metric("Sentiment", comment['sentiment'])
                     
-                    if not pd.isna(comment['polarity']):
-                        st.metric("Polarity", f"{comment['polarity']:.2f}")
+                    if not pd.isna(comment['sentiment_score']):
+                        st.metric("VADER Score", f"{comment['sentiment_score']:.2f}")
                     
-                    if not pd.isna(comment['subjectivity']):
-                        st.metric("Subjectivity", f"{comment['subjectivity']:.2f}")
-                    
-                    if not pd.isna(comment['spam_score']):
-                        spam_risk = "🚨 High" if comment['spam_score'] >= spam_threshold else "✅ Low"
-                        st.metric("Spam Risk", spam_risk)
+                    if comment.get('is_spam', False):
+                        st.metric("Spam Status", "🚨 Flagged")
+                    else:
+                        st.metric("Spam Status", "✅ Clean")
         
         st.caption(f"Showing {start_idx + 1}-{min(end_idx, len(filtered_comments))} of {len(filtered_comments)} comments")
     else:
@@ -524,7 +534,7 @@ def main():
     
     # === SECTION 4: Spam Detection ===
     st.header("🚫 Spam Detection")
-    st.markdown(f"Comments with spam score ≥ {spam_threshold}")
+    st.markdown("Comments flagged as spam")
     
     if not spam_df.empty:
         st.warning(f"⚠️ Found {len(spam_df)} potential spam comments")
