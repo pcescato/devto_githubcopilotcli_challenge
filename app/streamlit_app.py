@@ -130,8 +130,8 @@ def load_quick_stats():
             stats = {
                 'total_articles': len(quality_data) if quality_data else 0,
                 'avg_quality': sum(q.get('quality_score', 0) for q in quality_data) / len(quality_data) if quality_data else 0,
-                'total_themes': len(dna_data.get('moods', [])) if dna_data else 0,
-                'total_views': sum(q.get('views_90d', 0) for q in quality_data) if quality_data else 0
+                'total_themes': len(dna_data.get('themes', [])) if dna_data else 0,
+                'total_views': sum(q.get('total_views', 0) for q in quality_data) if quality_data else 0
             }
             
             return stats
