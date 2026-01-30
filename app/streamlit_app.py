@@ -66,12 +66,18 @@ st.markdown("""
 
 def run_async(coro):
     """Helper to run async functions in Streamlit's sync context"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    # Use the existing event loop or create one that stays alive
     try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    # Run the coroutine without closing the loop
+    return loop.run_until_complete(coro)
 
 
 @st.cache_resource
