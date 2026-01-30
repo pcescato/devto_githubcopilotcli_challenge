@@ -19,12 +19,6 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 
-try:
-    import nest_asyncio
-    nest_asyncio.apply()
-except (ValueError, RuntimeError):
-    pass
-
 st.set_page_config(
     page_title="Sentiment - DEV.to Dashboard",
     page_icon="💬",

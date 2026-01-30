@@ -23,12 +23,6 @@ import asyncio
 from datetime import datetime
 from typing import Optional
 
-try:
-    import nest_asyncio
-    nest_asyncio.apply()
-except (ValueError, RuntimeError):
-    pass
-
 # Page configuration
 st.set_page_config(
     page_title="DEV.to Analytics",
