@@ -341,7 +341,8 @@ def main():
         )
     
     with col2:
-        positive_count = next((m['count'] for m in moods if m['mood'] == 'positive'), 0)
+        # Check for positive mood - case insensitive, check for "positif" or "positive"
+        positive_count = next((m['count'] for m in moods if 'positif' in str(m['mood']).lower() or 'positive' in str(m['mood']).lower()), 0)
         positive_pct = (positive_count / sentiment_stats['total'] * 100) if sentiment_stats['total'] > 0 else 0
         st.metric(
             "Positive",
@@ -351,7 +352,8 @@ def main():
         )
     
     with col3:
-        negative_count = next((m['count'] for m in moods if m['mood'] == 'negative'), 0)
+        # Check for negative mood
+        negative_count = next((m['count'] for m in moods if 'négatif' in str(m['mood']).lower() or 'negative' in str(m['mood']).lower()), 0)
         negative_pct = (negative_count / sentiment_stats['total'] * 100) if sentiment_stats['total'] > 0 else 0
         st.metric(
             "Negative",
@@ -608,22 +610,39 @@ def main():
         
         # Spam list
         for idx, spam in spam_df.iterrows():
-            with st.expander(f"🚨 {spam['author_username']} (Score: {spam['spam_score']:.2f})", expanded=False):
+            # Get comment text and strip HTML
+            import re
+            import html
+            spam_text = spam.get('body_text', '[No comment text]')
+            if spam_text and spam_text != '[No comment text]':
+                spam_text = re.sub(r'<[^>]+>', '', spam_text)
+                spam_text = html.unescape(spam_text)
+                spam_text = ' '.join(spam_text.split())
+            
+            # Use sentiment_score as spam indicator (is_spam is boolean)
+            sentiment = spam.get('sentiment_score', 0.0)
+            
+            with st.expander(f"🚨 {spam['author_username']} (Sentiment: {sentiment:.2f})", expanded=False):
                 col1, col2 = st.columns([3, 1])
                 
                 with col1:
-                    st.markdown(f"**Article:** {spam['article_title']}")
+                    article_title = spam.get('article_title', 'Unknown Article')
+                    st.markdown(f"**Article:** {article_title}")
                     st.markdown(f"**Comment:**")
-                    st.write(spam['text'])
+                    if spam_text and spam_text != '[No comment text]':
+                        st.write(spam_text)
+                    else:
+                        st.info("💬 Comment text not available")
                 
                 with col2:
-                    st.metric("Spam Score", f"{spam['spam_score']:.2f}")
+                    st.metric("Sentiment", f"{sentiment:.2f}")
+                    st.metric("Is Spam", "🚨 Yes" if spam.get('is_spam') else "✅ No")
                     st.metric("Comment ID", spam['comment_id'])
                     
                     st.button("Mark as Spam", key=f"spam_{idx}", disabled=True, help="Feature not implemented")
                     st.button("Mark as Safe", key=f"safe_{idx}", disabled=True, help="Feature not implemented")
     else:
-        st.success("✅ No spam detected with current threshold!")
+        st.success("✅ No spam detected!")
     
     st.divider()
     
