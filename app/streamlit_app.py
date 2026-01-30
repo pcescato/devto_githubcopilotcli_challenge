@@ -9,12 +9,14 @@ Uses existing async services for data fetching.
 
 import streamlit as st
 import asyncio
-import nest_asyncio
 from datetime import datetime
 from typing import Optional
 
-# Enable nested event loops for Streamlit + async compatibility
-nest_asyncio.apply()
+try:
+    import nest_asyncio
+    nest_asyncio.apply()
+except (ValueError, RuntimeError):
+    pass
 
 # Page configuration
 st.set_page_config(

@@ -6,14 +6,17 @@ Visualizes comment sentiment distribution and identifies spam patterns.
 
 import streamlit as st
 import asyncio
-import nest_asyncio
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 
-nest_asyncio.apply()
+try:
+    import nest_asyncio
+    nest_asyncio.apply()
+except (ValueError, RuntimeError):
+    pass
 
 st.set_page_config(
     page_title="Sentiment - DEV.to Dashboard",
