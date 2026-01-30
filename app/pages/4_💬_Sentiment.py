@@ -111,7 +111,7 @@ def load_recent_comments(limit: int = 50) -> pd.DataFrame:
                     comments.c.article_id,
                     article_metrics.c.title.label('article_title'),
                     comments.c.author_username,
-                    comments.c.text,
+                    comments.c.body_text,
                     comments.c.created_at,
                     comment_insights.c.polarity,
                     comment_insights.c.subjectivity,
@@ -150,7 +150,7 @@ def load_recent_comments(limit: int = 50) -> pd.DataFrame:
                 df['sentiment'] = df['polarity'].apply(classify_sentiment)
                 
                 # Truncate text
-                df['text_preview'] = df['text'].apply(
+                df['text_preview'] = df['body_text'].apply(
                     lambda x: x[:100] + '...' if isinstance(x, str) and len(x) > 100 else x
                 )
                 
@@ -178,7 +178,7 @@ def load_spam_candidates(threshold: float = 0.5) -> pd.DataFrame:
                     comments.c.article_id,
                     article_metrics.c.title.label('article_title'),
                     comments.c.author_username,
-                    comments.c.text,
+                    comments.c.body_text,
                     comment_insights.c.spam_score
                 ).select_from(
                     comments
@@ -202,7 +202,7 @@ def load_spam_candidates(threshold: float = 0.5) -> pd.DataFrame:
                 
                 df = pd.DataFrame([dict(row) for row in rows])
                 
-                df['text_preview'] = df['text'].apply(
+                df['text_preview'] = df['body_text'].apply(
                     lambda x: x[:80] + '...' if isinstance(x, str) and len(x) > 80 else x
                 )
                 
@@ -287,7 +287,7 @@ def main():
         )
     
     with col2:
-        positive_count = next((m['count'] for m in moods if m['name'] == 'positive'), 0)
+        positive_count = next((m['count'] for m in moods if m['mood'] == 'positive'), 0)
         positive_pct = (positive_count / sentiment_stats['total'] * 100) if sentiment_stats['total'] > 0 else 0
         st.metric(
             "Positive",
@@ -297,7 +297,7 @@ def main():
         )
     
     with col3:
-        negative_count = next((m['count'] for m in moods if m['name'] == 'negative'), 0)
+        negative_count = next((m['count'] for m in moods if m['mood'] == 'negative'), 0)
         negative_pct = (negative_count / sentiment_stats['total'] * 100) if sentiment_stats['total'] > 0 else 0
         st.metric(
             "Negative",
@@ -331,7 +331,7 @@ def main():
             for mood in moods:
                 pct = (mood['count'] / sentiment_stats['total'] * 100) if sentiment_stats['total'] > 0 else 0
                 sentiment_data.append({
-                    'Sentiment': mood['name'].capitalize(),
+                    'Sentiment': mood['mood'].capitalize(),
                     'Count': mood['count'],
                     'Percentage': pct
                 })
@@ -367,7 +367,7 @@ def main():
             polarity_data = []
             for mood in moods:
                 polarity_data.append({
-                    'Sentiment': mood['name'].capitalize(),
+                    'Sentiment': mood['mood'].capitalize(),
                     'Avg Polarity': mood.get('avg_polarity', 0)
                 })
             
