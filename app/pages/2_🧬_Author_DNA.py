@@ -44,8 +44,28 @@ def run_async(coro):
 @st.cache_resource
 def get_cached_engine():
     """Get cached database engine"""
-    from app.db.connection import get_async_engine
-    return get_async_engine()
+    import os
+    from sqlalchemy.ext.asyncio import create_async_engine
+    
+    # Get database URL from environment
+    host = os.getenv('POSTGRES_HOST', 'localhost')
+    port = os.getenv('POSTGRES_PORT', '5432')
+    database = os.getenv('POSTGRES_DB', 'devto_analytics')
+    user = os.getenv('POSTGRES_USER', 'devto')
+    password = os.getenv('POSTGRES_PASSWORD', 'devto_secure_password')
+    
+    db_url = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
+    
+    engine = create_async_engine(
+        db_url,
+        pool_size=20,
+        max_overflow=10,
+        pool_pre_ping=True,
+        echo=False,
+        future=True
+    )
+    
+    return engine
 
 
 @st.cache_data(ttl=300)
