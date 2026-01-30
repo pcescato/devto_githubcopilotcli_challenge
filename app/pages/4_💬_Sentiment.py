@@ -433,6 +433,10 @@ def main():
         # Apply filter
         filtered_comments = comments_df[comments_df['sentiment'].isin(sentiment_filter)]
         
+        # Debug info
+        if len(filtered_comments) != len(comments_df):
+            st.info(f"🔍 Filtered from {len(comments_df)} total comments to {len(filtered_comments)} matching your criteria")
+        
         # Stats for filtered data
         col1, col2, col3 = st.columns(3)
         
@@ -506,19 +510,25 @@ def main():
                 'Unknown': '❓'
             }.get(comment['sentiment'], '❓')
             
+            # Use text_preview if body_text is None
+            comment_text = comment.get('body_text') or comment.get('text_preview', '[No comment text]')
+            
             with st.expander(f"{sentiment_emoji} {comment['author_username']} on {comment['article_title'][:50]}...", expanded=False):
                 col1, col2 = st.columns([3, 1])
                 
                 with col1:
                     st.markdown(f"**Comment:**")
-                    st.write(comment['body_text'])
+                    if comment_text and comment_text != '[No comment text]':
+                        st.write(comment_text)
+                    else:
+                        st.info("💬 Comment text not available (may not have been synced yet)")
                     
                     st.caption(f"Posted: {comment['created_at']}")
                 
                 with col2:
                     st.metric("Sentiment", comment['sentiment'])
                     
-                    if not pd.isna(comment['sentiment_score']):
+                    if not pd.isna(comment.get('sentiment_score')):
                         st.metric("VADER Score", f"{comment['sentiment_score']:.2f}")
                     
                     if comment.get('is_spam', False):
