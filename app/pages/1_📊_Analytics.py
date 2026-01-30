@@ -409,16 +409,16 @@ def main():
         
         with col1:
             # Bar chart of reactions by article
-            top_reactions = reaction_df.nlargest(15, 'reactions')
+            top_reactions = reaction_df.nlargest(15, 'total_reactions_lifetime')
             
             fig = px.bar(
                 top_reactions,
-                x='reactions',
+                x='total_reactions_lifetime',
                 y='title',
                 orientation='h',
-                color='reactions',
+                color='total_reactions_lifetime',
                 color_continuous_scale='Blues',
-                labels={'reactions': 'Total Reactions', 'title': 'Article'},
+                labels={'total_reactions_lifetime': 'Total Reactions', 'title': 'Article'},
                 height=500
             )
             
@@ -428,12 +428,12 @@ def main():
         with col2:
             # Summary statistics
             st.markdown("**Summary Statistics**")
-            st.metric("Total Reactions", f"{reaction_df['reactions'].sum():,}")
-            st.metric("Average per Article", f"{reaction_df['reactions'].mean():.1f}")
-            st.metric("Median Reactions", f"{reaction_df['reactions'].median():.0f}")
+            st.metric("Total Reactions", f"{reaction_df['total_reactions_lifetime'].sum():,}")
+            st.metric("Average per Article", f"{reaction_df['total_reactions_lifetime'].mean():.1f}")
+            st.metric("Median Reactions", f"{reaction_df['total_reactions_lifetime'].median():.0f}")
             
-            highest = reaction_df.nlargest(1, 'reactions').iloc[0]
-            st.info(f"🏆 **Top Article:**\n\n{highest['title'][:60]}...\n\n{highest['reactions']} reactions")
+            highest = reaction_df.nlargest(1, 'total_reactions_lifetime').iloc[0]
+            st.info(f"🏆 **Top Article:**\n\n{highest['title'][:60]}...\n\n{highest['total_reactions_lifetime']} reactions")
     
     st.divider()
     
