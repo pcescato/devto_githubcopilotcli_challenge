@@ -128,7 +128,12 @@ def load_recent_comments(limit: int = 50) -> pd.DataFrame:
                         latest_article_subq.c.title
                     ).label('article_title'),
                     comments.c.author_username,
-                    comments.c.body_text,
+                    # Fallback chain: body_text -> body_markdown -> body_html
+                    func.coalesce(
+                        comments.c.body_text,
+                        comments.c.body_markdown,
+                        comments.c.body_html
+                    ).label('body_text'),
                     comments.c.created_at,
                     comment_insights.c.sentiment_score,
                     comment_insights.c.mood,
@@ -225,7 +230,12 @@ def load_spam_candidates() -> pd.DataFrame:
                         latest_article_subq.c.title
                     ).label('article_title'),
                     comments.c.author_username,
-                    comments.c.body_text,
+                    # Fallback chain: body_text -> body_markdown -> body_html
+                    func.coalesce(
+                        comments.c.body_text,
+                        comments.c.body_markdown,
+                        comments.c.body_html
+                    ).label('body_text'),
                     comment_insights.c.is_spam,
                     comment_insights.c.sentiment_score
                 ).select_from(
