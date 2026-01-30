@@ -171,15 +171,11 @@ http://streamlit.local {
         health_interval 10s
         health_timeout 5s
         
-        # Headers for WebSocket support
+        # Headers
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
         header_up Host {host}
-        
-        # WebSocket support (Streamlit uses WebSockets)
-        header_up Connection {>Connection}
-        header_up Upgrade {>Upgrade}
         
         # Increase timeout for long-running operations
         transport http {
@@ -189,7 +185,7 @@ http://streamlit.local {
         }
     }
     
-    # Enable compression
+    # Enable compression (but not for WebSocket)
     encode gzip zstd
     
     # Security headers
