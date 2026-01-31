@@ -1403,6 +1403,127 @@ class AnalyticsService:
                     for row in hour_data
                 ]
             }
+    
+    # ========================================================================
+    # SISMOGRAPH - MASTER-DETAIL VIEW
+    # ========================================================================
+    
+    async def get_all_articles_summary(self) -> List[Dict[str, Any]]:
+        """
+        Get summary of all articles for master view
+        
+        Returns DataFrame-ready data with:
+        - title
+        - total_views
+        - total_reactions
+        - total_comments  
+        - article_id
+        
+        Uses latest article_metrics for current totals
+        """
+        # Get latest snapshot per article
+        query = (
+            select(
+                article_metrics.c.article_id,
+                article_metrics.c.title,
+                article_metrics.c.views.label('total_views'),
+                article_metrics.c.reactions.label('total_reactions'),
+                article_metrics.c.comments.label('total_comments'),
+                article_metrics.c.collected_at,
+            )
+            .distinct(article_metrics.c.article_id)
+            .order_by(
+                article_metrics.c.article_id,
+                article_metrics.c.collected_at.desc()
+            )
+        )
+        
+        async with self.engine.connect() as conn:
+            result = await conn.execute(query)
+            rows = result.mappings().all()
+        
+        return [
+            {
+                'title': row['title'],
+                'total_views': row['total_views'] or 0,
+                'total_reactions': row['total_reactions'] or 0,
+                'total_comments': row['total_comments'] or 0,
+                'article_id': row['article_id'],
+            }
+            for row in rows
+        ]
+    
+    async def get_article_pulses(self, article_id: int) -> List[Dict[str, Any]]:
+        """
+        Get activity pulses (deltas) for a specific article
+        
+        Args:
+            article_id: ID of the article
+        
+        Returns:
+            List of snapshots with deltas (pulses) calculated:
+            - collected_at (timestamp)
+            - views (current value)
+            - reactions (current value)
+            - comments (current value)
+            - delta_views (change from previous)
+            - delta_reactions (change from previous)
+            - delta_comments (change from previous)
+        
+        First row will have delta_* = 0 (no previous snapshot)
+        """
+        # Get all snapshots for this article ordered by time
+        query = (
+            select(
+                article_metrics.c.collected_at,
+                article_metrics.c.views,
+                article_metrics.c.reactions,
+                article_metrics.c.comments,
+            )
+            .where(article_metrics.c.article_id == article_id)
+            .order_by(article_metrics.c.collected_at.asc())
+        )
+        
+        async with self.engine.connect() as conn:
+            result = await conn.execute(query)
+            rows = result.mappings().all()
+        
+        if not rows:
+            return []
+        
+        # Convert to list for processing
+        snapshots = [
+            {
+                'collected_at': row['collected_at'],
+                'views': row['views'] or 0,
+                'reactions': row['reactions'] or 0,
+                'comments': row['comments'] or 0,
+            }
+            for row in rows
+        ]
+        
+        # Calculate deltas (pulses)
+        pulses = []
+        for i, snapshot in enumerate(snapshots):
+            if i == 0:
+                # First snapshot - no previous data, deltas are 0
+                pulses.append({
+                    **snapshot,
+                    'delta_views': 0,
+                    'delta_reactions': 0,
+                    'delta_comments': 0,
+                })
+            else:
+                # Calculate difference from previous snapshot
+                prev = snapshots[i - 1]
+                pulses.append({
+                    **snapshot,
+                    'delta_views': snapshot['views'] - prev['views'],
+                    'delta_reactions': snapshot['reactions'] - prev['reactions'],
+                    'delta_comments': snapshot['comments'] - prev['comments'],
+                })
+        
+        return pulses
 
 
 # ============================================================================
