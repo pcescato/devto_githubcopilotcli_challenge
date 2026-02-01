@@ -146,17 +146,12 @@ MIT License - see [LICENSE](LICENSE) file for details
 
 ## 🙏 Acknowledgments
 
-- Built for the [GitHub Copilot CLI Challenge](https://dev.to/challenges/github-copilot-cli-challenge)
+- Built for the [GitHub Copilot CLI Challenge](https://dev.to/challenges/github-2026-01-21)
 - Powered by [DEV.to Forem API](https://developers.forem.com/api/v1)
 - Generated with GitHub Copilot CLI
 
 ## 🔗 Links
 
-- [DEV.to Profile](https://dev.to/YOUR_USERNAME)
-- [Challenge Announcement](https://dev.to/challenges/github-copilot-cli-challenge)
-- [GitHub Repository](https://github.com/YOUR_USERNAME/devto_githubcopilotcli_challenge)
-
----
-
-**Status**: Phase 2 Complete - PostgreSQL Schema Migration ✅  
-**Next**: FastAPI REST API Development 🚀
+- [DEV.to Profile](https://dev.to/pascal_cescato_692b7a8a20)
+- [Challenge Announcement](https://dev.to/challenges/github-2026-01-21)
+- [GitHub Repository](https://github.com/pcescato/devto_githubcopilotcli_challenge)
