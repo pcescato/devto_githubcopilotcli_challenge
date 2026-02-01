@@ -1,0 +1,315 @@
+services:
+  ################################
+  # BASE DE DONNEES
+  ################################
+  postgres:
+    build: .
+    container_name: postgresql
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD={{CHANGE_ME_DB_PASSWORD}}
+      - POSTGRES_DB=postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./init-authentik-db.sql:/docker-entrypoint-initdb.d/02-init-authentik.sql:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ################################
+  # WALLABAG
+  ################################
+  wallabag:
+    image: wallabag/wallabag:latest
+    container_name: wallabag
+    restart: unless-stopped
+    environment:
+      - SYMFONY__ENV__DATABASE_DRIVER=pdo_pgsql
+      - SYMFONY__ENV__DATABASE_HOST=postgres
+      - SYMFONY__ENV__DATABASE_PORT=5432
+      - SYMFONY__ENV__DATABASE_NAME=${WALLABAG_DB_NAME}
+      - SYMFONY__ENV__DATABASE_USER=${WALLABAG_DB_USER}
+      - SYMFONY__ENV__DATABASE_PASSWORD=${WALLABAG_DB_PASSWORD}
+      - SYMFONY__ENV__DOMAIN_NAME=https://${WALLABAG_SUBDOMAIN}.${DOMAIN}
+      - SYMFONY__ENV__SERVER_NAME="Wallabag"
+      - SYMFONY_ENV=prod
+    volumes:
+      - wallabag-data:/var/www/wallabag/web/assets/images
+    networks:
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:80"
+
+  ################################
+  # DBGATE - Interface BDD
+  ################################
+  dbgate:
+    image: dbgate/dbgate:latest
+    container_name: dbgate
+    restart: unless-stopped
+    volumes:
+      - dbgate-data:/root/.dbgate
+    networks:
+      - backend
+    ports:
+      - "127.0.0.1:3000:3000"
+
+  ################################
+  # ANALYTICS: VALKEY CACHE
+  ################################
+  valkey:
+    image: valkey/valkey:8.0-alpine
+    container_name: devto_valkey
+    restart: unless-stopped
+    environment:
+      VALKEY_PASSWORD: ${DEVTO_VALKEY_PASSWORD}
+    volumes:
+      - valkey-data:/data
+    command: valkey-server --requirepass ${DEVTO_VALKEY_PASSWORD} --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "valkey-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  ################################
+  # ANALYTICS: FASTAPI
+  ################################
+  fastapi:
+    build:
+      context: ./devto_stats
+      dockerfile: Dockerfile
+    container_name: devto_fastapi
+    restart: unless-stopped
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD={{CHANGE_ME_DB_PASSWORD}}
+      - POSTGRES_DB=${DEVTO_DB_NAME}
+      - VALKEY_HOST=valkey
+      - VALKEY_PORT=6379
+      - VALKEY_PASSWORD=${DEVTO_VALKEY_PASSWORD}
+      - DEVTO_API_KEY={{CHANGE_ME_API_KEY}}
+      - API_KEY={{CHANGE_ME_API_KEY}}
+    command: ["gunicorn", "app.api.main:app", "--workers", "2", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--access-logfile", "-", "--error-logfile", "-", "--log-level", "info"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - backend
+    ports:
+      - "127.0.0.1:8000:8000"
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  ################################
+  # ANALYTICS: STREAMLIT
+  ################################
+  streamlit:
+    build:
+      context: ./devto_stats
+      dockerfile: Dockerfile
+    container_name: devto_streamlit
+    restart: unless-stopped
+    command: streamlit run app/streamlit_app.py
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD={{CHANGE_ME_DB_PASSWORD}}
+      - POSTGRES_DB=${DEVTO_DB_NAME}
+    volumes:
+      - ./devto_stats/.streamlit:/code/.streamlit:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - backend
+    ports:
+      - "127.0.0.1:8501:8501"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  ################################
+  # AUTHENTIK IAM - SERVER
+  ################################
+  authentik-server:
+    image: ghcr.io/goauthentik/server:2024.12
+    container_name: authentik_server
+    restart: unless-stopped
+    command: server
+    environment:
+      # PostgreSQL Database
+      AUTHENTIK_POSTGRESQL__HOST: postgres
+      AUTHENTIK_POSTGRESQL__PORT: 5432
+      AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_DB_NAME}
+      AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_DB_USER}
+      AUTHENTIK_PASSWORD: {{CHANGE_ME_AUTHENTIK_PASSWORD}}
+      
+      # Redis Cache & Queue
+      AUTHENTIK_REDIS__HOST: valkey
+      AUTHENTIK_REDIS__PORT: 6379
+      AUTHENTIK_PASSWORD: {{CHANGE_ME_AUTHENTIK_PASSWORD}}
+      
+      # Authentik Configuration
+      AUTHENTIK_SECRET_KEY: {{CHANGE_ME_AUTHENTIK_SECRET_KEY}}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+      AUTHENTIK_COOKIE_DOMAIN: .weeklydigest.me
+      
+      # Email (optional - configure later)
+      AUTHENTIK_EMAIL__HOST: ${AUTHENTIK_EMAIL_HOST:-localhost}
+      AUTHENTIK_EMAIL__PORT: ${AUTHENTIK_EMAIL_PORT:-25}
+      AUTHENTIK_EMAIL__USERNAME: ${AUTHENTIK_EMAIL_USERNAME:-}
+      AUTHENTIK_PASSWORD: {{CHANGE_ME_AUTHENTIK_PASSWORD}}
+      AUTHENTIK_EMAIL__USE_TLS: ${AUTHENTIK_EMAIL_USE_TLS:-false}
+      AUTHENTIK_EMAIL__USE_SSL: ${AUTHENTIK_EMAIL_USE_SSL:-false}
+      AUTHENTIK_EMAIL__FROM: ${AUTHENTIK_EMAIL_FROM:-authentik@weeklydigest.me}
+      
+      # Bootstrap Admin (first time only)
+      AUTHENTIK_PASSWORD: {{CHANGE_ME_AUTHENTIK_PASSWORD}}
+      AUTHENTIK_BOOTSTRAP_TOKEN: {{CHANGE_ME_AUTHENTIK_TOKEN}}
+      
+      # Web Server Configuration (reduce workers for memory)
+      AUTHENTIK_WEB__WORKERS: 2
+      AUTHENTIK_WEB__THREADS: 2
+    volumes:
+      - authentik-media:/media
+      - authentik-templates:/templates
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    networks:
+      - backend
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9443:9443"
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:9000/-/health/live/\")' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  ################################
+  # AUTHENTIK IAM - WORKER
+  ################################
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:2024.12
+    container_name: authentik_worker
+    restart: unless-stopped
+    command: worker
+    environment:
+      # Same as server
+      AUTHENTIK_POSTGRESQL__HOST: postgres
+      AUTHENTIK_POSTGRESQL__PORT: 5432
+      AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_DB_NAME}
+      AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_DB_USER}
+      AUTHENTIK_PASSWORD: {{CHANGE_ME_AUTHENTIK_PASSWORD}}
+      AUTHENTIK_REDIS__HOST: valkey
+      AUTHENTIK_REDIS__PORT: 6379
+      AUTHENTIK_PASSWORD: {{CHANGE_ME_AUTHENTIK_PASSWORD}}
+      AUTHENTIK_SECRET_KEY: {{CHANGE_ME_AUTHENTIK_SECRET_KEY}}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+      AUTHENTIK_COOKIE_DOMAIN: .weeklydigest.me
+    volumes:
+      - authentik-media:/media
+      - authentik-certs:/certs
+      - authentik-templates:/templates
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      authentik-server:
+        condition: service_healthy
+    networks:
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    # Worker healthcheck removed - background service doesn't need health monitoring
+
+  ################################
+  # AUTHENTIK PROXY OUTPOST
+  ################################
+  authentik-proxy:
+    image: ghcr.io/goauthentik/proxy:2024.12
+    container_name: authentik_proxy
+    restart: unless-stopped
+    environment:
+      AUTHENTIK_HOST: http://authentik-server:9000
+      AUTHENTIK_INSECURE: "true"
+      AUTHENTIK_TOKEN: ${AUTHENTIK_PROXY_TOKEN}
+    depends_on:
+      authentik-server:
+        condition: service_healthy
+    networks:
+      - backend
+    ports:
+      - "127.0.0.1:9100:9000"
+      - "127.0.0.1:9543:9443"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:9000/outpost.goauthentik.io/ping\")' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+################################
+# VOLUMES & RESEAUX
+################################
+volumes:
+  postgres-data:
+  wallabag-data:
+  dbgate-data:
+  valkey-data:
+  authentik-media:
+  authentik-templates:
+  authentik-certs:
+
+networks:
+  backend:
+    driver: bridge

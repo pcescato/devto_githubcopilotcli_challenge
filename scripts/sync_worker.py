@@ -167,9 +167,9 @@ async def run_sync_pipeline():
         )
         
         # ═══════════════════════════════════════════════════════════════════
-        # Phase 3: Intelligence - Theme classification (DNA analysis)
+        # Phase 3: Intelligence - Comments, Sentiment & DNA
         # ═══════════════════════════════════════════════════════════════════
-        log("Phase 3/4: Intelligence - Classifying articles by theme", "🧬")
+        log("Phase 3/4: Intelligence - Comments, Sentiment & DNA", "🧬")
         phase3_start = datetime.now()
         
         # Initialize remaining services (not context managers)
@@ -177,6 +177,20 @@ async def run_sync_pipeline():
         theme_service = ThemeService(engine=engine)
         nlp_service = NLPService(engine=engine)
         
+        # 1. Sync Comments from DEV.to API
+        log("Syncing comments from DEV.to...", "💬")
+        async with DevToService(api_key=devto_api_key, db_url=db_url) as devto_service:
+            new_comments = await devto_service.sync_comments()
+        log(f"Comments: {new_comments} new comments fetched", "💬")
+        
+        # 2. Run NLP Analysis on comments (sentiment + entities)
+        log("Running NLP analysis on comments...", "🧠")
+        nlp_results = await nlp_service.run_analysis()
+        processed_count = nlp_results.get('processing', {}).get('processed', 0)
+        log(f"NLP: {processed_count} comments analyzed", "🧠")
+        
+        # 3. Theme Classification (DNA)
+        log("Classifying articles by theme...", "🧬")
         # Ensure default themes exist
         themes_created = await theme_service.seed_default_themes()
         if themes_created > 0:
@@ -184,12 +198,12 @@ async def run_sync_pipeline():
         
         # Classify all articles
         classification_result = await theme_service.classify_all_articles()
+        classified_count = classification_result.get('classified', 0)
         
         phase3_duration = (datetime.now() - phase3_start).total_seconds()
-        classified_count = classification_result.get('classified', 0)
         log(
-            f"Intelligence: {classified_count} articles classified "
-            f"in {phase3_duration:.1f}s",
+            f"Intelligence: {new_comments} comments + {processed_count} analyzed + "
+            f"{classified_count} articles classified in {phase3_duration:.1f}s",
             "✅"
         )
         
@@ -246,6 +260,8 @@ async def run_sync_pipeline():
         print(f"  Articles Updated:     {articles_synced}")
         print(f"  Daily Analytics:      {daily_count}")
         print(f"  Referrers Synced:     {referrer_count}")
+        print(f"  Comments Fetched:     {new_comments}")
+        print(f"  Comments Analyzed:    {processed_count}")
         print(f"  Articles Classified:  {classified_count}")
         print(f"  Total Duration:       {total_duration:.1f}s")
         print("=" * 70)

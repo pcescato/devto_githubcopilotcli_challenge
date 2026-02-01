@@ -368,7 +368,7 @@ class NLPService:
                         analyzed_at=analyzed_at,
                     )
                     stmt = stmt.on_conflict_do_update(
-                        constraint='comment_insights_pkey',
+                        constraint='pk_comment_insights',
                         set_={
                             'is_spam': True,
                             'mood': "🚫 Spam",
@@ -404,7 +404,7 @@ class NLPService:
                 )
                 
                 stmt = stmt.on_conflict_do_update(
-                    constraint='comment_insights_pkey',
+                    constraint='pk_comment_insights',
                     set_={
                         'sentiment_score': stmt.excluded.sentiment_score,
                         'mood': stmt.excluded.mood,

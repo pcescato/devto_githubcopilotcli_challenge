@@ -1,0 +1,212 @@
+# Configuration Caddy avec Authentik Forward Auth
+# /etc/caddy/Caddyfile
+
+# Configuration globale
+{
+	# Désactiver l'auto HTTPS de Caddy car on utilise Cloudflare
+	auto_https off
+	
+	# Ordre des directives - forward_auth doit être traité tôt
+	order forward_auth before reverse_proxy
+}
+
+# ========================================
+# AUTHENTIK IAM - Authentication Portal
+# ========================================
+auth.{{YOUR_DOMAIN}} {
+    tls {{PATH_TO_TLS_CERT}} {{PATH_TO_TLS_CERT}}
+    
+    reverse_proxy localhost:9000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+    }
+    
+    encode gzip zstd
+    
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Cache-Control "no-store, no-cache, must-revalidate, private"
+    }
+    
+    # log {
+    #     output file /var/log/caddy/auth.log {
+    #         roll_size 10mb
+    #         roll_keep 5
+    #     }
+    # }
+}
+
+# ========================================
+# WALLABAG - No Authentication Required
+# ========================================
+wallabag.{{YOUR_DOMAIN}} {
+    tls {{PATH_TO_TLS_CERT}} {{PATH_TO_TLS_CERT}}
+    
+    reverse_proxy localhost:8080 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+    }
+    
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        X-XSS-Protection "1; mode=block"
+        Access-Control-Allow-Origin "https://wallabag.{{YOUR_DOMAIN}}"
+        Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+        Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With"
+        Access-Control-Allow-Credentials "true"
+    }
+    
+    log {
+        output file /var/log/caddy/wallabag.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+    }
+}
+
+# ========================================
+# ANALYTICS API - Public Access
+# ========================================
+analytics.{{YOUR_DOMAIN}} {
+    tls {{PATH_TO_TLS_CERT}} {{PATH_TO_TLS_CERT}}
+    
+    reverse_proxy localhost:8000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        
+        health_uri /api/health
+        health_interval 30s
+        health_timeout 10s
+    }
+    
+    encode gzip zstd
+    
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+    
+    log {
+        output file /var/log/caddy/analytics-api.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+    }
+}
+
+# ========================================
+# STREAMLIT DASHBOARD - Protected (Admin + Judge)
+# ========================================
+streamlit.{{YOUR_DOMAIN}} {
+    tls {{PATH_TO_TLS_CERT}} {{PATH_TO_TLS_CERT}}
+    
+    # Authentik Forward Authentication (using embedded outpost)
+    forward_auth localhost:9000 {
+        uri /outpost.goauthentik.io/auth/caddy
+         
+        # Copy authentication headers to backend
+        copy_headers X-authentik-username X-authentik-groups X-authentik-email X-authentik-name X-authentik-uid
+         
+        # Trusted proxies
+        trusted_proxies private_ranges
+    }
+    
+    reverse_proxy localhost:8501 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+        
+        # Pass authentication headers
+        header_up X-authentik-username {http.request.header.X-authentik-username}
+        header_up X-authentik-groups {http.request.header.X-authentik-groups}
+        header_up X-authentik-email {http.request.header.X-authentik-email}
+        header_up X-authentik-name {http.request.header.X-authentik-name}
+        header_up X-authentik-uid {http.request.header.X-authentik-uid}
+        
+        # Force HTTP/1.1 to backend (Streamlit doesn't handle h2c properly)
+        transport http {
+            versions 1.1
+        }
+    }
+    
+    encode gzip zstd
+    
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+    
+    log {
+        output file /var/log/caddy/streamlit.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+    }
+}
+
+# ========================================
+# DBGATE - Protected (Admin Only)
+# ========================================
+dbgate.{{YOUR_DOMAIN}} {
+    tls {{PATH_TO_TLS_CERT}} {{PATH_TO_TLS_CERT}}
+    
+    # Authentik Forward Authentication (using embedded outpost)
+    forward_auth localhost:9000 {
+        uri /outpost.goauthentik.io/auth/caddy
+         
+        # Copy authentication headers to backend
+        copy_headers X-authentik-username X-authentik-groups X-authentik-email X-authentik-name X-authentik-uid
+         
+        # Trusted proxies
+        trusted_proxies private_ranges
+    }
+    
+    reverse_proxy localhost:3000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+        
+        # Pass authentication headers
+        header_up X-authentik-username {http.request.header.X-authentik-username}
+        header_up X-authentik-groups {http.request.header.X-authentik-groups}
+    }
+    
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "same-origin"
+    }
+    
+    log {
+        output file /var/log/caddy/dbgate.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+    }
+}
