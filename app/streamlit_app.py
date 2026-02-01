@@ -289,6 +289,68 @@ def main():
             st.warning("⚠️ No data available yet. Run data sync first:")
             st.code("python3 scripts/sync_worker.py", language="bash")
     
+    # Recent Activity Section
+    st.markdown("---")
+    
+    try:
+        import pandas as pd
+        from app.services.analytics_service import AnalyticsService
+        
+        # Load data using existing cache system
+        async def _load_activity():
+            engine = get_cached_engine()
+            service = AnalyticsService(engine)
+            data = await service.get_recent_activity()
+            return data
+        
+        activity_data = run_async(_load_activity())
+        
+        if activity_data:
+            df = pd.DataFrame(activity_data)
+            
+            # Format snapshot time for header
+            snapshot_time = df['snapshot_time'].iloc[0]
+            
+            # Format with ordinal suffix
+            day = snapshot_time.day
+            if 4 <= day <= 20 or 24 <= day <= 30:
+                suffix = "th"
+            else:
+                suffix = ["st", "nd", "rd"][day % 10 - 1]
+            
+            day_abbr = snapshot_time.strftime('%a')
+            hour = snapshot_time.hour
+            header_time = f"{day_abbr}. {day}{suffix}, {snapshot_time.year} {hour:02d}:00 - {hour:02d}:59"
+            
+            st.subheader(f"Most recent views - {header_time}")
+            
+            # Format columns
+            df['Article'] = df['title']
+            
+            df['Views'] = df['delta_views'].apply(
+                lambda x: f"+{x} view" if x == 1 else f"+{x} views"
+            )
+            
+            df['Reactions'] = df['delta_reactions'].apply(
+                lambda x: "no reaction" if x == 0 else (f"+{x} reaction" if x == 1 else f"+{x} reactions")
+            )
+            
+            df['Comments'] = df['delta_comments'].apply(
+                lambda x: "no comment" if x == 0 else (f"+{x} comment" if x == 1 else f"+{x} comments")
+            )
+            
+            # Display simple table
+            st.dataframe(
+                df[['Article', 'Views', 'Reactions', 'Comments']],
+                hide_index=True,
+                width='stretch',
+            )
+        else:
+            st.info("No recent activity")
+            
+    except Exception as e:
+        st.error(f"Could not load recent activity: {str(e)}")
+    
     st.divider()
     
     # Features overview
