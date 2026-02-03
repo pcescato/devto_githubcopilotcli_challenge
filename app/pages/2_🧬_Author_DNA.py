@@ -448,22 +448,21 @@ def main():
     # === SECTION 4: Insights ===
     st.header("💡 Strategic Insights")
     
-    if moods:
+    if themes:
         col1, col2 = st.columns(2)
         
         with col1:
             st.subheader("🏆 Best Performing Theme")
             
             # Find theme with highest avg engagement
-            best_theme = max(moods, key=lambda x: x.get('avg_engagement', 0))
+            best_theme = max(themes, key=lambda x: x.get('avg_engagement', 0))
             
             st.success(f"""
-            **{best_theme['name']}**
+            **{best_theme['theme_name']}**
             
-            - 📝 {best_theme['count']} articles
-            - 👁️ {best_theme.get('avg_views', 0):.0f} avg views
-            - 💬 {best_theme.get('avg_reactions', 0):.1f} avg reactions
-            - 📊 {best_theme.get('avg_engagement', 0):.2f}% engagement
+            - 📝 {best_theme['article_count']} articles
+            - 👁️ {best_theme.get('total_views', 0) / max(best_theme['article_count'], 1):.0f} avg views
+            - 💬 {best_theme.get('avg_engagement', 0):.2f}% engagement
             
             **Recommendation:** Focus more on this theme type to maximize engagement.
             """)
@@ -472,12 +471,12 @@ def main():
             st.subheader("📈 Growth Opportunities")
             
             # Find theme with lowest avg views but decent count
-            growth_themes = [m for m in moods if m['count'] >= 3]
+            growth_themes = [t for t in themes if t['article_count'] >= 3]
             if growth_themes:
-                opportunity_theme = min(growth_themes, key=lambda x: x.get('avg_views', 0))
+                opportunity_theme = min(growth_themes, key=lambda x: x.get('total_views', 0) / max(x['article_count'], 1))
                 
                 st.info(f"""
-                **{opportunity_theme['name']}**
+                **{opportunity_theme['theme_name']}**
                 
                 - 📝 {opportunity_theme['count']} articles
                 - 👁️ {opportunity_theme.get('avg_views', 0):.0f} avg views
@@ -495,8 +494,8 @@ def main():
     col1, col2 = st.columns(2)
     
     with col1:
-        if moods:
-            themes_csv = pd.DataFrame(moods).to_csv(index=False)
+        if themes:
+            themes_csv = pd.DataFrame(themes).to_csv(index=False)
             st.download_button(
                 label="Download Theme Summary (CSV)",
                 data=themes_csv,
