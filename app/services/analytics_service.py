@@ -1546,7 +1546,8 @@ class AnalyticsService:
             latest_snap.views - COALESCE(prev_snap.views, 0) as delta_views,
             latest_snap.reactions - COALESCE(prev_snap.reactions, 0) as delta_reactions,
             latest_snap.comments - COALESCE(prev_snap.comments, 0) as delta_comments,
-            latest_snap.collected_at as snapshot_time
+            latest_snap.collected_at as snapshot_time,
+            (SELECT collected_at FROM previous) as previous_snapshot_time
         FROM devto_analytics.article_metrics latest_snap
         CROSS JOIN latest
         LEFT JOIN devto_analytics.article_metrics prev_snap 

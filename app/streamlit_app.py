@@ -308,10 +308,11 @@ def main():
         if activity_data:
             df = pd.DataFrame(activity_data)
             
-            # Format snapshot time for header
+            # Format snapshot time range for header
             snapshot_time = df['snapshot_time'].iloc[0]
+            previous_time = df['previous_snapshot_time'].iloc[0]
             
-            # Format with ordinal suffix
+            # Format: "Sun. 1st, 2026 16:00 - 20:00"
             day = snapshot_time.day
             if 4 <= day <= 20 or 24 <= day <= 30:
                 suffix = "th"
@@ -319,8 +320,9 @@ def main():
                 suffix = ["st", "nd", "rd"][day % 10 - 1]
             
             day_abbr = snapshot_time.strftime('%a')
-            hour = snapshot_time.hour
-            header_time = f"{day_abbr}. {day}{suffix}, {snapshot_time.year} {hour:02d}:00 - {hour:02d}:59"
+            prev_hour = previous_time.hour
+            latest_hour = snapshot_time.hour
+            header_time = f"{day_abbr}. {day}{suffix}, {snapshot_time.year} {prev_hour:02d}:00 - {latest_hour:02d}:00"
             
             st.subheader(f"Most recent views - {header_time}")
             

@@ -478,9 +478,8 @@ def main():
                 st.info(f"""
                 **{opportunity_theme['theme_name']}**
                 
-                - 📝 {opportunity_theme['count']} articles
-                - 👁️ {opportunity_theme.get('avg_views', 0):.0f} avg views
-                - 💬 {opportunity_theme.get('avg_reactions', 0):.1f} avg reactions
+                - 📝 {opportunity_theme['article_count']} articles
+                - 👁️ {opportunity_theme.get('total_views', 0) / max(opportunity_theme['article_count'], 1):.0f} avg views
                 
                 **Recommendation:** Articles in this theme have lower visibility. 
                 Consider promoting them or improving titles/tags for better reach.
