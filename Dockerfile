@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir -r /code/requirements.txt \
     && pip install --no-cache-dir -r /code/app-requirements.txt \
     && pip install --no-cache-dir -r /code/streamlit-requirements.txt \
     && pip install --no-cache-dir gunicorn \
+    && python -m spacy download en_core_web_sm \
     && rm /code/requirements.txt /code/app-requirements.txt /code/streamlit-requirements.txt
 
 # Copy application code
