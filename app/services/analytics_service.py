@@ -1526,10 +1526,10 @@ class AnalyticsService:
         return pulses
 
     async def get_recent_activity(self):
-        """Get articles with delta views from latest snapshot compared to ~24h baseline.
+        """Get articles with delta views from latest snapshot compared to ~4h baseline.
         
-        Uses the snapshot closest to 24 hours ago as baseline. Falls back to the
-        oldest available snapshot if no snapshot exists within 24 hours, ensuring
+        Uses the snapshot closest to 4 hours ago as baseline. Falls back to the
+        oldest available snapshot if no snapshot exists within 4 hours, ensuring
         the time range is always meaningful rather than showing a narrow window
         between two consecutive syncs.
         """
@@ -1544,7 +1544,7 @@ class AnalyticsService:
                 (SELECT am2.collected_at
                  FROM devto_analytics.article_metrics am2
                  WHERE am2.collected_at <= (SELECT lt.collected_at FROM latest_ts lt)
-                                           - INTERVAL '20 hours'
+                                           - INTERVAL '4 hours'
                  ORDER BY am2.collected_at DESC
                  LIMIT 1),
                 (SELECT MIN(am3.collected_at)
