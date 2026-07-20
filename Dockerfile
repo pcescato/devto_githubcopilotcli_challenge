@@ -23,8 +23,9 @@ RUN pip install --no-cache-dir -r /code/requirements.txt \
     && python -m spacy download en_core_web_sm \
     && rm /code/requirements.txt /code/app-requirements.txt /code/streamlit-requirements.txt
 
-# Copy application code
+# Copy application code and sync scripts
 COPY app /code/app
+COPY scripts /code/scripts
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /code

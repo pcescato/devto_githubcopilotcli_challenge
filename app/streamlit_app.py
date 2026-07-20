@@ -312,17 +312,25 @@ def main():
             snapshot_time = df['snapshot_time'].iloc[0]
             previous_time = df['previous_snapshot_time'].iloc[0]
             
-            # Format: "Sun. 1st, 2026 16:00 - 20:00"
-            day = snapshot_time.day
-            if 4 <= day <= 20 or 24 <= day <= 30:
-                suffix = "th"
-            else:
-                suffix = ["st", "nd", "rd"][day % 10 - 1]
+            def _ordinal_suffix(d):
+                if 4 <= d <= 20 or 24 <= d <= 30:
+                    return "th"
+                return ["st", "nd", "rd"][d % 10 - 1]
             
-            day_abbr = snapshot_time.strftime('%a')
-            prev_hour = previous_time.hour
-            latest_hour = snapshot_time.hour
-            header_time = f"{day_abbr}. {day}{suffix}, {snapshot_time.year} {prev_hour:02d}:00 - {latest_hour:02d}:00"
+            def _format_date(dt):
+                return f"{dt.strftime('%a')}. {dt.day}{_ordinal_suffix(dt.day)}, {dt.year}"
+            
+            def _format_hour(dt):
+                return f"{dt.hour:02d}:00"
+            
+            same_day = snapshot_time.date() == previous_time.date()
+            
+            if same_day:
+                # "Sun. 19th, 2026 12:00 - 16:00"
+                header_time = f"{_format_date(snapshot_time)} {_format_hour(previous_time)} - {_format_hour(snapshot_time)}"
+            else:
+                # "Sat. 18th 12:00 → Sun. 19th, 2026 16:00"
+                header_time = f"{_format_date(previous_time)} {_format_hour(previous_time)} → {_format_date(snapshot_time)} {_format_hour(snapshot_time)}"
             
             st.subheader(f"Most recent views - {header_time}")
             
