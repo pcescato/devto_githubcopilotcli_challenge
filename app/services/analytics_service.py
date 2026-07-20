@@ -1543,9 +1543,10 @@ class AnalyticsService:
             SELECT COALESCE(
                 (SELECT am2.collected_at
                  FROM devto_analytics.article_metrics am2
-                 WHERE am2.collected_at <= (SELECT lt.collected_at FROM latest_ts lt)
+                 WHERE am2.collected_at >= (SELECT lt.collected_at FROM latest_ts lt)
                                            - INTERVAL '4 hours'
-                 ORDER BY am2.collected_at DESC
+                   AND am2.collected_at <  (SELECT lt.collected_at FROM latest_ts lt)
+                 ORDER BY am2.collected_at ASC
                  LIMIT 1),
                 (SELECT MIN(am3.collected_at)
                  FROM devto_analytics.article_metrics am3)
