@@ -323,13 +323,16 @@ def main():
             def _format_hour(dt):
                 return f"{dt.hour:02d}:00"
             
-            same_day = snapshot_time.date() == previous_time.date()
+            try:
+                same_day = snapshot_time.date() == previous_time.date()
+            except (AttributeError, TypeError, ValueError):
+                same_day = False
             
-            if same_day:
-                # "Sun. 19th, 2026 12:00 - 16:00"
+            if pd.isna(previous_time):
+                header_time = _format_date(snapshot_time)
+            elif same_day:
                 header_time = f"{_format_date(snapshot_time)} {_format_hour(previous_time)} - {_format_hour(snapshot_time)}"
             else:
-                # "Sat. 18th 12:00 → Sun. 19th, 2026 16:00"
                 header_time = f"{_format_date(previous_time)} {_format_hour(previous_time)} → {_format_date(snapshot_time)} {_format_hour(snapshot_time)}"
             
             st.subheader(f"Most recent views - {header_time}")
