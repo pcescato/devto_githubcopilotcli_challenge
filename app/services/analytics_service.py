@@ -1536,25 +1536,23 @@ class AnalyticsService:
         
         query = """
         WITH latest_ts AS (
-            SELECT MAX(collected_at) AS collected_at
-            FROM devto_analytics.article_metrics
+            SELECT MAX(am.collected_at) AS collected_at
+            FROM devto_analytics.article_metrics am
         ),
         baseline AS (
-            -- Try to find the snapshot closest to 24h ago
-            SELECT collected_at
-            FROM devto_analytics.article_metrics, latest_ts
-            WHERE collected_at <= latest_ts.collected_at - INTERVAL '20 hours'
-            ORDER BY collected_at DESC
+            SELECT am.collected_at
+            FROM devto_analytics.article_metrics am, latest_ts lt
+            WHERE am.collected_at <= lt.collected_at - INTERVAL '20 hours'
+            ORDER BY am.collected_at DESC
             LIMIT 1
         ),
         baseline_final AS (
-            SELECT collected_at FROM baseline
-            WHERE collected_at IS NOT NULL
+            SELECT b.collected_at FROM baseline b
+            WHERE b.collected_at IS NOT NULL
             UNION ALL
-            -- Fallback: use the oldest available snapshot
-            SELECT MIN(collected_at)
-            FROM devto_analytics.article_metrics, latest_ts, baseline
-            WHERE baseline.collected_at IS NULL
+            SELECT MIN(am.collected_at)
+            FROM devto_analytics.article_metrics am, latest_ts lt, baseline b
+            WHERE b.collected_at IS NULL
         )
         SELECT 
             latest_snap.title,
