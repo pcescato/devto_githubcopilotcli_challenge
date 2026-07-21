@@ -1526,31 +1526,20 @@ class AnalyticsService:
         return pulses
 
     async def get_recent_activity(self):
-        """Get articles with delta views from latest snapshot compared to ~4h baseline.
-        
-        Uses the snapshot closest to 4 hours ago as baseline. Falls back to the
-        oldest available snapshot if no snapshot exists within 4 hours, ensuring
-        the time range is always meaningful rather than showing a narrow window
-        between two consecutive syncs.
-        """
+        """Get articles with delta views from latest snapshot (compared to previous)"""
         
         query = """
-        WITH latest_ts AS (
-            SELECT MAX(am.collected_at) AS collected_at
-            FROM devto_analytics.article_metrics am
+        WITH snapshots_ordered AS (
+            SELECT DISTINCT collected_at
+            FROM devto_analytics.article_metrics
+            ORDER BY collected_at DESC
+            LIMIT 2
         ),
-        baseline_ts AS (
-            SELECT COALESCE(
-                (SELECT am2.collected_at
-                 FROM devto_analytics.article_metrics am2
-                 WHERE am2.collected_at >= (SELECT lt.collected_at FROM latest_ts lt)
-                                           - INTERVAL '4 hours'
-                   AND am2.collected_at <  (SELECT lt.collected_at FROM latest_ts lt)
-                 ORDER BY am2.collected_at ASC
-                 LIMIT 1),
-                (SELECT MIN(am3.collected_at)
-                 FROM devto_analytics.article_metrics am3)
-            ) AS collected_at
+        latest AS (
+            SELECT collected_at FROM snapshots_ordered ORDER BY collected_at DESC LIMIT 1
+        ),
+        previous AS (
+            SELECT collected_at FROM snapshots_ordered ORDER BY collected_at ASC LIMIT 1
         )
         SELECT 
             latest_snap.title,
@@ -1558,14 +1547,13 @@ class AnalyticsService:
             latest_snap.reactions - COALESCE(prev_snap.reactions, 0) as delta_reactions,
             latest_snap.comments - COALESCE(prev_snap.comments, 0) as delta_comments,
             latest_snap.collected_at as snapshot_time,
-            bt.collected_at as previous_snapshot_time
+            (SELECT collected_at FROM previous) as previous_snapshot_time
         FROM devto_analytics.article_metrics latest_snap
-        CROSS JOIN latest_ts lt
-        CROSS JOIN baseline_ts bt
+        CROSS JOIN latest
         LEFT JOIN devto_analytics.article_metrics prev_snap 
             ON prev_snap.article_id = latest_snap.article_id
-            AND prev_snap.collected_at = bt.collected_at
-        WHERE latest_snap.collected_at = lt.collected_at
+            AND prev_snap.collected_at = (SELECT collected_at FROM previous)
+        WHERE latest_snap.collected_at = latest.collected_at
           AND (latest_snap.views - COALESCE(prev_snap.views, 0)) > 0
         ORDER BY (latest_snap.views - COALESCE(prev_snap.views, 0)) DESC
         """
